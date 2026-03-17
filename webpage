@@ -1,0 +1,190 @@
+import React, { useState, useEffect } from "react";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Github, FileText, TrendingUp } from "lucide-react";
+
+export default function Portfolio() {
+  const [tab, setTab] = useState("home");
+  const [repos, setRepos] = useState([]);
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // 🔥 Fetch GitHub repos (LIVE PROJECTS)
+  useEffect(() => {
+    fetch("https://api.github.com/users/your-github-username/repos")
+      .then((res) => res.json())
+      .then((data) => {
+        setRepos(data.slice(0, 6));
+      });
+  }, []);
+
+  const renderContent = () => {
+    switch (tab) {
+      case "about":
+        return (
+          <Card className="mt-6 bg-gray-900 border-gray-700">
+            <CardContent className="p-6">
+              <h2 className="text-2xl font-semibold mb-2">About Me</h2>
+              <p>
+                I am a student passionate about data analytics and finance. I specialize in analyzing
+                financial data, building models, and creating tools that generate actionable insights.
+              </p>
+            </CardContent>
+          </Card>
+        );
+
+      case "skills":
+        return (
+          <Card className="mt-6 bg-gray-900 border-gray-700">
+            <CardContent className="p-6">
+              <h2 className="text-2xl font-semibold mb-4">Skills</h2>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h3 className="font-semibold text-blue-400">Data</h3>
+                  <ul className="list-disc pl-5">
+                    <li>Python, SQL</li>
+                    <li>Data Cleaning</li>
+                    <li>Statistical Analysis</li>
+                  </ul>
+                </div>
+                <div>
+                  <h3 className="font-semibold text-green-400">Finance</h3>
+                  <ul className="list-disc pl-5">
+                    <li>Financial Modeling</li>
+                    <li>Valuation</li>
+                    <li>Market Analysis</li>
+                  </ul>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        );
+
+      case "projects":
+        return (
+          <div className="mt-6">
+            <h2 className="text-2xl font-semibold mb-4">Live Projects</h2>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              {repos.map((repo) => (
+                <Card key={repo.id} className="bg-gray-900 border-gray-700 hover:border-blue-400 transition">
+                  <CardContent className="p-4">
+                    <h3 className="font-semibold text-lg">{repo.name}</h3>
+                    <p className="text-sm text-gray-400 mb-3">
+                      {repo.description || "No description provided"}
+                    </p>
+
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-gray-500">{repo.language}</span>
+                      <a href={repo.html_url} target="_blank" className="text-blue-400 text-sm">
+                        View Code →
+                      </a>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <a
+              href="https://github.com/your-github-username"
+              target="_blank"
+              className="inline-flex items-center gap-2 text-blue-400 mt-6"
+            >
+              <Github size={18} /> View Full GitHub
+            </a>
+          </div>
+        );
+
+      case "achievements":
+        return (
+          <Card className="mt-6 bg-gray-900 border-gray-700">
+            <CardContent className="p-6">
+              <h2 className="text-2xl font-semibold mb-2">Achievements</h2>
+              <ul className="list-disc pl-5">
+                <li>Academic awards or scholarships</li>
+                <li>Finance / Data competitions</li>
+                <li>Certifications (Coursera, CFA basics)</li>
+              </ul>
+            </CardContent>
+          </Card>
+        );
+
+      case "resume":
+        return (
+          <Card className="mt-6 bg-gray-900 border-gray-700">
+            <CardContent className="p-6 flex justify-between items-center">
+              <div>
+                <h2 className="text-2xl font-semibold">Resume</h2>
+                <p>Download or print my resume</p>
+              </div>
+              <Button onClick={handlePrint}>
+                <FileText className="mr-2" /> Print Resume
+              </Button>
+            </CardContent>
+          </Card>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-black text-white">
+      {/* Navbar */}
+      <nav className="flex justify-between items-center px-8 py-4 border-b border-gray-800">
+        <h1 className="text-xl font-bold flex items-center gap-2">
+          <TrendingUp className="text-green-400" /> Keith Tan
+        </h1>
+        <div className="flex gap-6">
+          {["home", "about", "skills", "projects", "achievements", "resume"].map((item) => (
+            <button
+              key={item}
+              onClick={() => setTab(item)}
+              className={`capitalize hover:text-green-400 ${tab === item ? "text-green-400" : ""}`}
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {/* Landing Page */}
+      {tab === "home" && (
+        <section className="flex flex-col items-center justify-center text-center h-[85vh] px-6">
+          <h1 className="text-6xl font-bold mb-4">
+            Keith Tan
+          </h1>
+
+          <p className="text-2xl text-green-400 mb-6">
+            Data Analyst • Finance • Builder
+          </p>
+
+          <p className="max-w-xl text-gray-400 mb-8">
+            I design financial models, build data tools, and analyze markets. My focus is turning
+            data into decisions.
+          </p>
+
+          <div className="flex gap-4">
+            <Button className="bg-green-500 hover:bg-green-600" onClick={() => setTab("projects")}>
+              View Live Projects
+            </Button>
+            <Button variant="outline" onClick={() => setTab("resume")}>
+              Resume
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {/* Content */}
+      <div className="max-w-5xl mx-auto px-6 pb-10">{renderContent()}</div>
+
+      {/* Footer */}
+      <footer className="text-center py-6 text-gray-600 text-sm">
+        © {new Date().getFullYear()} Keith Tan
+      </footer>
+    </div>
+  );
+}
