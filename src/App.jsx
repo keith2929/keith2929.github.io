@@ -14,6 +14,7 @@ const HEADERS = {
     projects: ['title', 'period', 'description', 'tags'],
     home: ['available_text', 'name', 'subtitle', 'description', 'badge1', 'badge2', 'badge3'],
     education: ['school', 'degree', 'major', 'relevant', 'period'],
+    resume: ['url'],
 }
 
 async function readSheet(name) {
@@ -126,13 +127,14 @@ export default function Portfolio() {
         major: "Double Major: Accountancy & Accounting Data Analytics",
         relevant: "Advanced Tax, Financial Accounting, Audit", period: "Sep 2022 – May 2026",
     })
+    const [resumeUrl, setResumeUrl] = useState('')
 
     useEffect(() => {
         Promise.all([
             readSheet('about'), readSheet('experience'), readSheet('skills'),
             readSheet('certifications'), readSheet('projects'),
-            readSheet('home'), readSheet('education'),
-        ]).then(([a, exp, sk, cert, proj, hm, edu]) => {
+            readSheet('home'), readSheet('education'), readSheet('resume'),
+        ]).then(([a, exp, sk, cert, proj, hm, edu, res]) => {
             if (a[0]) setAbout(a[0])
             if (exp.length) setExperience(exp)
             if (sk.length) setSkills(sk)
@@ -140,6 +142,7 @@ export default function Portfolio() {
             if (proj.length) setProjects(proj)
             if (hm[0]) setHomeData(hm[0])
             if (edu[0]) setEducation(edu[0])
+            if (res[0]?.url) setResumeUrl(res[0].url)
             setLoading(false)
         }).catch(() => setLoading(false))
 
@@ -166,6 +169,7 @@ export default function Portfolio() {
         if (type === 'skill') { const u = [...skills]; index === -1 ? u.push(data) : u[index] = data; setSkills(u); ok = await writeSheet('skills', u) }
         if (type === 'certification') { const u = [...certifications]; index === -1 ? u.push(data) : u[index] = data; setCertifications(u); ok = await writeSheet('certifications', u) }
         if (type === 'project') { const u = [...projects]; index === -1 ? u.push(data) : u[index] = data; setProjects(u); ok = await writeSheet('projects', u) }
+        if (type === 'resume') { setResumeUrl(data.url); ok = await writeSheet('resume', [{ url: data.url }]) }
 
         setSaving(false)
         setModal(null)
@@ -245,6 +249,10 @@ export default function Portfolio() {
                         <Field label="Period" value={modal.data.period || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, period: v } }))} />
                         <Field label="Description" value={modal.data.description || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, description: v } }))} multiline />
                         <Field label="Tags (comma separated)" value={modal.data.tags || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, tags: v } }))} />
+                    </>}
+                    {modal.type === 'resume' && <>
+                        <Field label="Google Drive URL" value={modal.data.url || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, url: v } }))} />
+                        <p style={{ color: '#6b7280', fontSize: 12, marginTop: -8 }}>Paste your Google Drive share link here</p>
                     </>}
                 </Modal>
             )}
@@ -348,34 +356,82 @@ export default function Portfolio() {
                 {/* EXPERIENCE */}
                 {tab === "experience" && (
                     <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 16 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 32 }}>
                             <h2 style={{ ...s.h2, margin: 0 }}>Work Experience</h2>
                             {isAdmin && <AddBtn onClick={() => setModal({ type: 'experience', title: 'Add Experience', data: { company: '', role: '', period: '', points: '', color: '#4ade80' }, index: -1 })} label="Add Job" />}
                         </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                            {experience.map((job, idx) => (
-                                <div key={idx} style={{ ...s.card, borderLeft: `3px solid ${job.color || '#4ade80'}`, marginTop: 0 }}>
-                                    <div style={s.cardHeader}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                                <p style={{ color: job.color || '#4ade80', fontWeight: 600, fontSize: 17, margin: 0 }}>{job.company}</p>
-                                                <span style={s.badge}>{job.period}</span>
-                                            </div>
-                                            <p style={{ color: '#fff', fontSize: 15, margin: '4px 0 0' }}>{job.role}</p>
+                        {(() => {
+                            // Extract start year from period string e.g. "May 2025 – Aug 2025" → 2025
+                            const getYear = (period) => {
+                                const match = period?.match(/\d{4}/)
+                                return match ? parseInt(match[0]) : 2024
+                            }
+                            const sorted = [...experience].sort((a, b) => getYear(b.period) - getYear(a.period))
+                            const maxYear = Math.max(...sorted.map(j => getYear(j.period))) + 1
+                            const minYear = Math.min(...sorted.map(j => getYear(j.period))) - 1
+                            const years = []
+                            for (let y = maxYear; y >= minYear; y--) years.push(y)
+                            const PX_PER_YEAR = 120
+                            const totalHeight = years.length * PX_PER_YEAR
+
+                            return (
+                                <div style={{ position: 'relative', minHeight: totalHeight + 60 }}>
+                                    {/* Center line */}
+                                    <div style={{ position: 'absolute', left: '50%', top: 0, height: totalHeight + 40, width: 2, background: '#1f2937', transform: 'translateX(-50%)', zIndex: 0 }} />
+
+                                    {/* Year labels */}
+                                    {years.map((year, i) => (
+                                        <div key={year} style={{ position: 'absolute', left: '50%', top: i * PX_PER_YEAR, transform: 'translateX(-50%)', background: '#0a0a0a', padding: '2px 8px', borderRadius: 4, zIndex: 2 }}>
+                                            <span style={{ color: '#6b7280', fontSize: 12, fontWeight: 500 }}>{year}</span>
                                         </div>
-                                        {isAdmin && <div style={{ display: 'flex', gap: 6, marginLeft: 12 }}>
-                                            <EditBtn onClick={() => setModal({ type: 'experience', title: 'Edit Experience', data: { ...job }, index: idx })} />
-                                            <DeleteBtn onClick={() => deleteItem('experience', idx)} />
-                                        </div>}
-                                    </div>
-                                    <ul style={{ margin: '12px 0 0', paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                                        {(job.points || '').split(';').map((p, i) => p.trim() && (
-                                            <li key={i} style={{ color: '#d1d5db', lineHeight: 1.7, fontSize: 14 }}>{p.trim()}</li>
-                                        ))}
-                                    </ul>
+                                    ))}
+
+                                    {/* Experience cards */}
+                                    {sorted.map((job, idx) => {
+                                        const year = getYear(job.period)
+                                        const yearIndex = years.indexOf(year)
+                                        const topPos = yearIndex * PX_PER_YEAR + 30
+                                        const isLeft = idx % 2 === 0
+
+                                        return (
+                                            <div key={idx} style={{ position: 'absolute', top: topPos, left: isLeft ? 0 : '50%', width: 'calc(50% - 24px)', marginLeft: isLeft ? 0 : 24, marginRight: isLeft ? 24 : 0, zIndex: 1 }}>
+                                                <div style={{ background: '#111', border: `1px solid ${job.color || '#1f2937'}`, borderRadius: 12, padding: 16 }}>
+                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                            <p style={{ color: job.color || '#4ade80', fontWeight: 600, fontSize: 14, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.company}</p>
+                                                            <p style={{ color: '#fff', fontSize: 13, margin: '2px 0 6px' }}>{job.role}</p>
+                                                            <span style={s.badge}>{job.period}</span>
+                                                        </div>
+                                                        {isAdmin && <div style={{ display: 'flex', gap: 4, marginLeft: 6, flexShrink: 0 }}>
+                                                            <EditBtn onClick={() => setModal({ type: 'experience', title: 'Edit Experience', data: { ...job }, index: experience.indexOf(job) })} />
+                                                            <DeleteBtn onClick={() => deleteItem('experience', experience.indexOf(job))} />
+                                                        </div>}
+                                                    </div>
+                                                    <ul style={{ margin: '8px 0 0', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                                        {(job.points || '').split(';').map((p, i) => p.trim() && (
+                                                            <li key={i} style={{ color: '#d1d5db', lineHeight: 1.6, fontSize: 12 }}>{p.trim()}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                                {/* Connector dot */}
+                                                <div style={{
+                                                    position: 'absolute',
+                                                    top: 20,
+                                                    [isLeft ? 'right' : 'left']: -30,
+                                                    width: 12, height: 12,
+                                                    borderRadius: '50%',
+                                                    background: job.color || '#4ade80',
+                                                    border: '2px solid #0a0a0a',
+                                                    zIndex: 3,
+                                                }} />
+                                            </div>
+                                        )
+                                    })}
+                                    {/* Bottom padding */}
+                                    <div style={{ height: totalHeight + 60 }} />
                                 </div>
-                            ))}
-                        </div>
+                            )
+                        })()}
                     </div>
                 )}
 
@@ -479,10 +535,17 @@ export default function Portfolio() {
                         <p style={{ fontSize: 48, marginBottom: 16 }}>📄</p>
                         <h2 style={{ ...s.h2, textAlign: 'center' }}>Resume</h2>
                         <p style={{ color: '#9ca3af', marginBottom: 32 }}>Tan Kai Jun Keith — Accountancy & Data Analytics</p>
-                        <button onClick={() => window.open("/Resume.pdf", "_blank", "noopener,noreferrer")}
+                        <button
+                            onClick={() => resumeUrl ? window.open(resumeUrl, "_blank", "noopener,noreferrer") : alert('No resume URL set yet — log in as admin to add one.')}
                             style={{ ...s.btn, fontSize: 16, padding: '12px 32px', background: '#4ade80', color: '#000', fontWeight: 600 }}>
                             Download / View PDF
                         </button>
+                        {isAdmin && (
+                            <div style={{ marginTop: 24 }}>
+                                <EditBtn onClick={() => setModal({ type: 'resume', title: 'Edit Resume URL', data: { url: resumeUrl } })} />
+                                <p style={{ color: '#6b7280', fontSize: 12, marginTop: 8 }}>Current URL: {resumeUrl || 'not set'}</p>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
