@@ -1,14 +1,14 @@
 import express from 'express'
 import cors from 'cors'
 import { google } from 'googleapis'
-import { readFileSync } from 'fs'
+import 'dotenv/config'
 
 const app = express()
-app.use(cors({ origin: 'http://localhost:5173' }))
+app.use(cors({ origin: process.env.CORS_ORIGIN || 'http://localhost:5173' }))
 app.use(express.json())
 
-const SPREADSHEET_ID = '1A7T-oP0EM9yd1HoJcYFCUslcc4S9PeAdnTFPh-x5AOk'
-const credentials = JSON.parse(readFileSync('./credentials.json', 'utf8'))
+const SPREADSHEET_ID = process.env.SPREADSHEET_ID
+const credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS)
 
 async function getSheets() {
     const auth = new google.auth.GoogleAuth({

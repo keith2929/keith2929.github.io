@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
 
 // ── CONFIG ───────────────────────────────────────────────────
-const ADMIN_USERNAME = "keith"
-const ADMIN_PASSWORD = "password123"
+const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || "keith"
+const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD
 const GITHUB_USERNAME = "keith2929"
-const API = "http://localhost:3001/api/sheet"
+const API = import.meta.env.VITE_API_URL || "http://localhost:3001/api/sheet"
 
 const HEADERS = {
     about: ['bio', 'email', 'phone', 'linkedin', 'github'],

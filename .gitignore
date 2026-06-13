@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 .vs/
 credentials.json
+.env
+.env.local
+.env*.local
