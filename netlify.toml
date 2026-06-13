@@ -1,0 +1,9 @@
+[build]
+  command = "vite build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/sheet/*"
+  to = "/.netlify/functions/sheet/:splat"
+  status = 200
