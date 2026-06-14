@@ -17,6 +17,25 @@ const HEADERS = {
     resume: ['url'],
 }
 
+const CARD_GRADIENTS = [
+    'linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)',
+    'linear-gradient(135deg, #065f46 0%, #10b981 100%)',
+    'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)',
+    'linear-gradient(135deg, #b45309 0%, #f59e0b 100%)',
+    'linear-gradient(135deg, #be123c 0%, #fb7185 100%)',
+    'linear-gradient(135deg, #0e7490 0%, #22d3ee 100%)',
+]
+
+function getProjectIcon(tags = '') {
+    const t = tags.toLowerCase()
+    if (t.includes('machine learning') || t.includes('ml') || t.includes('ai')) return '🧠'
+    if (t.includes('data') || t.includes('analytics') || t.includes('sql') || t.includes('power bi')) return '📊'
+    if (t.includes('python') || t.includes('automation') || t.includes('bot')) return '🤖'
+    if (t.includes('web') || t.includes('react') || t.includes('javascript')) return '💻'
+    if (t.includes('accounting') || t.includes('tax') || t.includes('audit') || t.includes('finance')) return '📋'
+    return '🔷'
+}
+
 async function readSheet(name) {
     const res = await fetch(`${API}/${name}`)
     return res.json()
@@ -110,6 +129,8 @@ export default function Portfolio() {
     const [modal, setModal] = useState(null)
     const [repos, setRepos] = useState([])
     const [reposLoading, setReposLoading] = useState(false)
+    const [activeFilter, setActiveFilter] = useState('All')
+    const [selectedProject, setSelectedProject] = useState(null)
 
     const [about, setAbout] = useState({})
     const [experience, setExperience] = useState([])
@@ -475,52 +496,115 @@ export default function Portfolio() {
                 )}
 
                 {/* PROJECTS */}
-                {tab === "projects" && (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 16 }}>
-                            <h2 style={{ ...s.h2, margin: 0 }}>Projects</h2>
-                            {isAdmin && <AddBtn onClick={() => setModal({ type: 'project', title: 'Add Project', data: { title: '', period: '', description: '', tags: '' }, index: -1 })} label="Add Project" />}
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                            {projects.map((p, idx) => (
-                                <div key={idx} style={{ ...s.card, marginTop: 0 }}>
-                                    <div style={s.cardHeader}>
-                                        <div style={{ flex: 1 }}>
-                                            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-                                                <p style={{ color: '#0f172a', fontWeight: 600, fontSize: 16, margin: 0 }}>{p.title}</p>
-                                                <span style={s.badge}>{p.period}</span>
+                {tab === "projects" && (() => {
+                    const allTags = [...new Set(projects.flatMap(p => (p.tags || '').split(',').map(t => t.trim()).filter(Boolean)))]
+                    const filtered = activeFilter === 'All' ? projects : projects.filter(p => (p.tags || '').split(',').map(t => t.trim()).includes(activeFilter))
+                    const showGitHub = activeFilter === 'All' || activeFilter === 'GitHub'
+
+                    return (
+                        <div>
+                            {/* Dark hero banner */}
+                            <div style={{ margin: '0 -24px', padding: '52px 24px 48px', background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)', textAlign: 'center', marginBottom: 36 }}>
+                                <h2 style={{ color: '#fff', fontSize: 34, margin: '0 0 12px', fontWeight: 700, letterSpacing: '-0.5px' }}>Projects & Work</h2>
+                                <p style={{ color: '#94a3b8', fontSize: 15, maxWidth: 480, margin: '0 auto', lineHeight: 1.7 }}>
+                                    Data analytics, accounting automation, and software projects I've built or contributed to.
+                                </p>
+                            </div>
+
+                            {/* Filter pills + admin add */}
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 32, justifyContent: 'center', alignItems: 'center' }}>
+                                {['All', ...allTags, 'GitHub'].map(filter => (
+                                    <button key={filter} onClick={() => setActiveFilter(filter)} style={{
+                                        padding: '8px 20px', borderRadius: 999, border: '1px solid',
+                                        borderColor: activeFilter === filter ? '#1e40af' : '#e2e8f0',
+                                        background: activeFilter === filter ? '#1e40af' : '#fff',
+                                        color: activeFilter === filter ? '#fff' : '#475569',
+                                        cursor: 'pointer', fontSize: 14,
+                                        fontWeight: activeFilter === filter ? 600 : 400,
+                                    }}>{filter}</button>
+                                ))}
+                                {isAdmin && <AddBtn onClick={() => setModal({ type: 'project', title: 'Add Project', data: { title: '', period: '', description: '', tags: '' }, index: -1 })} label="Add Project" />}
+                            </div>
+
+                            {/* Project cards grid */}
+                            {filtered.length > 0 && (
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 24, marginBottom: 40 }}>
+                                    {filtered.map((p, idx) => (
+                                        <div key={idx} style={{ borderRadius: 12, overflow: 'hidden', border: '1px solid #e2e8f0', background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', cursor: 'pointer' }}
+                                            onClick={() => setSelectedProject({ ...p, _idx: projects.indexOf(p) })}>
+                                            {/* Gradient top */}
+                                            <div style={{ height: 110, background: CARD_GRADIENTS[idx % CARD_GRADIENTS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, position: 'relative' }}>
+                                                {getProjectIcon(p.tags)}
+                                                {isAdmin && (
+                                                    <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
+                                                        <EditBtn onClick={() => setModal({ type: 'project', title: 'Edit Project', data: { ...p }, index: projects.indexOf(p) })} />
+                                                        <DeleteBtn onClick={() => deleteItem('project', projects.indexOf(p))} />
+                                                    </div>
+                                                )}
+                                            </div>
+                                            {/* Card body */}
+                                            <div style={{ padding: 20 }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                                                    <p style={{ color: '#0f172a', fontWeight: 600, fontSize: 15, margin: 0 }}>{p.title}</p>
+                                                    <span style={{ ...s.badge, flexShrink: 0 }}>{p.period}</span>
+                                                </div>
+                                                <p style={{ color: '#64748b', fontSize: 13, lineHeight: 1.65, margin: '0 0 16px', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{p.description}</p>
+                                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                                    {(p.tags || '').split(',').map(t => t.trim()).filter(Boolean).map(t => (
+                                                        <span key={t} style={{ ...s.tag, fontSize: 11, padding: '2px 8px' }}>{t}</span>
+                                                    ))}
+                                                </div>
+                                                <p style={{ color: '#1e40af', fontSize: 13, fontWeight: 500, margin: '14px 0 0' }}>Learn more →</p>
                                             </div>
                                         </div>
-                                        {isAdmin && <div style={{ display: 'flex', gap: 6, marginLeft: 12 }}>
-                                            <EditBtn onClick={() => setModal({ type: 'project', title: 'Edit Project', data: { ...p }, index: idx })} />
-                                            <DeleteBtn onClick={() => deleteItem('project', idx)} />
-                                        </div>}
-                                    </div>
-                                    <p style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, margin: '12px 0' }}>{p.description}</p>
-                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                                        {(p.tags || '').split(',').map(t => t.trim()).filter(Boolean).map(t => (
-                                            <span key={t} style={s.tag}>{t}</span>
+                                    ))}
+                                </div>
+                            )}
+
+                            {/* GitHub repos */}
+                            {showGitHub && (
+                                <div>
+                                    <h3 style={{ ...s.h2, fontSize: 18, marginBottom: 16 }}>GitHub Repositories</h3>
+                                    {reposLoading && <p style={{ color: '#94a3b8' }}>Loading repositories...</p>}
+                                    <div style={s.grid2}>
+                                        {repos.map(repo => (
+                                            <div key={repo.id} style={{ ...s.card, marginTop: 0 }}>
+                                                <p style={{ fontWeight: 600, fontSize: 15, margin: '0 0 6px', color: '#0f172a' }}>{repo.name}</p>
+                                                <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16, lineHeight: 1.6, flex: 1 }}>{repo.description || 'No description provided'}</p>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ color: '#94a3b8', fontSize: 12 }}>{repo.language}</span>
+                                                    <a href={repo.html_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', fontSize: 13, fontWeight: 500 }}>View Code →</a>
+                                                </div>
+                                            </div>
                                         ))}
                                     </div>
                                 </div>
-                            ))}
-                        </div>
-                        <h2 style={{ ...s.h2, marginTop: 36 }}>GitHub Repositories</h2>
-                        {reposLoading && <p style={{ color: '#94a3b8' }}>Loading repositories...</p>}
-                        <div style={s.grid2}>
-                            {repos.map(repo => (
-                                <div key={repo.id} style={{ ...s.card, marginTop: 0 }}>
-                                    <p style={{ fontWeight: 600, fontSize: 15, margin: '0 0 6px', color: '#0f172a' }}>{repo.name}</p>
-                                    <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16, lineHeight: 1.6 }}>{repo.description || "No description provided"}</p>
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ color: '#94a3b8', fontSize: 12 }}>{repo.language}</span>
-                                        <a href={repo.html_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', fontSize: 13, fontWeight: 500 }}>View Code →</a>
+                            )}
+
+                            {/* Project detail modal */}
+                            {selectedProject && (
+                                <div style={s.overlay} onClick={() => setSelectedProject(null)}>
+                                    <div style={{ ...s.modal, maxWidth: 600 }} onClick={e => e.stopPropagation()}>
+                                        <div style={{ height: 140, background: CARD_GRADIENTS[selectedProject._idx % CARD_GRADIENTS.length], borderRadius: '12px 12px 0 0', margin: '-28px -28px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>
+                                            {getProjectIcon(selectedProject.tags)}
+                                        </div>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+                                            <h3 style={{ margin: 0, color: '#0f172a', fontSize: 20, fontWeight: 700 }}>{selectedProject.title}</h3>
+                                            <button onClick={() => setSelectedProject(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer', flexShrink: 0 }}>×</button>
+                                        </div>
+                                        <span style={s.badge}>{selectedProject.period}</span>
+                                        <p style={{ color: '#475569', lineHeight: 1.8, fontSize: 14, margin: '16px 0' }}>{selectedProject.description}</p>
+                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                            {(selectedProject.tags || '').split(',').map(t => t.trim()).filter(Boolean).map(t => (
+                                                <span key={t} style={s.tag}>{t}</span>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
-                            ))}
+                            )}
                         </div>
-                    </div>
-                )}
+                    )
+                })()}
 
                 {/* RESUME */}
                 {tab === "resume" && (
