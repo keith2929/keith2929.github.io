@@ -179,7 +179,7 @@ export default function Portfolio() {
             .catch(() => setReposLoading(false))
 
         setCredlyLoading(true)
-        fetch(`https://www.credly.com/users/${CREDLY_USERNAME}/badges.json`)
+        fetch(`/.netlify/functions/credly?username=${CREDLY_USERNAME}`)
             .then(r => r.json()).then(d => { setCredlyBadges(d.data || []); setCredlyLoading(false) })
             .catch(() => setCredlyLoading(false))
     }, [])
