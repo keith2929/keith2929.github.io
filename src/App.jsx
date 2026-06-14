@@ -10,7 +10,7 @@ const HEADERS = {
     about: ['bio', 'email', 'phone', 'linkedin', 'github'],
     experience: ['company', 'role', 'period', 'points', 'color'],
     skills: ['category', 'skills'],
-    certifications: ['name'],
+    certifications: ['name', 'url'],
     projects: ['title', 'period', 'description', 'tags'],
     home: ['available_text', 'name', 'subtitle', 'description', 'badge1', 'badge2', 'badge3'],
     education: ['school', 'degree', 'major', 'relevant', 'period'],
@@ -267,6 +267,7 @@ export default function Portfolio() {
                     </>}
                     {modal.type === 'certification' && <>
                         <Field label="Certification name" value={modal.data.name || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, name: v } }))} />
+                        <Field label="Credly badge URL" value={modal.data.url || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, url: v } }))} />
                     </>}
                     {modal.type === 'project' && <>
                         <Field label="Title" value={modal.data.title || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, title: v } }))} />
@@ -483,7 +484,10 @@ export default function Portfolio() {
                                 {certifications.map((cert, idx) => (
                                     <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
                                         <span style={{ color: '#1e40af', flexShrink: 0, fontWeight: 700 }}>✓</span>
-                                        <span style={{ color: '#0f172a', fontSize: 14, flex: 1 }}>{cert.name}</span>
+                                        {cert.url
+                                            ? <a href={cert.url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', fontSize: 14, flex: 1, textDecoration: 'none', fontWeight: 500 }}>{cert.name} ↗</a>
+                                            : <span style={{ color: '#0f172a', fontSize: 14, flex: 1 }}>{cert.name}</span>
+                                        }
                                         {isAdmin && <div style={{ display: 'flex', gap: 4 }}>
                                             <EditBtn onClick={() => setModal({ type: 'certification', title: 'Edit Certification', data: { ...cert }, index: idx })} />
                                             <DeleteBtn onClick={() => deleteItem('certification', idx)} />
