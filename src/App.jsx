@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || "keith"
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD
 const GITHUB_USERNAME = "keith2929"
+const CREDLY_USERNAME = "keith-tan.d370937e"
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001/api/sheet"
 
 const HEADERS = {
@@ -129,6 +130,8 @@ export default function Portfolio() {
     const [modal, setModal] = useState(null)
     const [repos, setRepos] = useState([])
     const [reposLoading, setReposLoading] = useState(false)
+    const [credlyBadges, setCredlyBadges] = useState([])
+    const [credlyLoading, setCredlyLoading] = useState(false)
     const [activeFilter, setActiveFilter] = useState('All')
     const [selectedProject, setSelectedProject] = useState(null)
 
@@ -174,6 +177,11 @@ export default function Portfolio() {
         fetch(`https://api.github.com/users/${GITHUB_USERNAME}/repos?sort=updated&per_page=6`)
             .then(r => r.json()).then(d => { setRepos(d.slice(0, 6)); setReposLoading(false) })
             .catch(() => setReposLoading(false))
+
+        setCredlyLoading(true)
+        fetch(`https://www.credly.com/users/${CREDLY_USERNAME}/badges.json`)
+            .then(r => r.json()).then(d => { setCredlyBadges(d.data || []); setCredlyLoading(false) })
+            .catch(() => setCredlyLoading(false))
     }, [])
 
     const showToast = (ok) => {
@@ -475,10 +483,38 @@ export default function Portfolio() {
                                 ))}
                             </div>
                         </div>
+                        {/* CREDLY BADGES */}
                         <div style={s.card}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-                                <h2 style={{ ...s.h2, margin: 0 }}>Certifications</h2>
-                                {isAdmin && <AddBtn onClick={() => setModal({ type: 'certification', title: 'Add Certification', data: { name: '' }, index: -1 })} label="Add" />}
+                                <div>
+                                    <h2 style={{ ...s.h2, margin: 0 }}>Credly Badges</h2>
+                                    <p style={{ color: '#94a3b8', fontSize: 12, margin: '4px 0 0' }}>Verified credentials from Credly</p>
+                                </div>
+                                <a href={`https://www.credly.com/users/${CREDLY_USERNAME}`} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', fontSize: 13, fontWeight: 500, textDecoration: 'none' }}>View profile ↗</a>
+                            </div>
+                            {credlyLoading && <p style={{ color: '#94a3b8', fontSize: 14 }}>Loading badges...</p>}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 16 }}>
+                                {credlyBadges.map(badge => (
+                                    <a key={badge.id} href={`https://www.credly.com/badges/${badge.id}`} target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: 16, borderRadius: 10, border: '1px solid #e2e8f0', background: '#f8fafc', transition: 'box-shadow 0.15s' }}
+                                        onMouseEnter={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(30,64,175,0.1)'}
+                                        onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
+                                        <img src={badge.image_url} alt={badge.badge_template?.name} style={{ width: 80, height: 80, objectFit: 'contain' }} />
+                                        <p style={{ color: '#0f172a', fontSize: 12, fontWeight: 600, textAlign: 'center', margin: 0, lineHeight: 1.4 }}>{badge.badge_template?.name}</p>
+                                        <p style={{ color: '#94a3b8', fontSize: 11, margin: 0 }}>{badge.issuer?.entities?.[0]?.entity?.name || 'Credly'}</p>
+                                        <p style={{ color: '#cbd5e1', fontSize: 10, margin: 0 }}>{badge.issued_at_date?.slice(0, 7)}</p>
+                                    </a>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* OTHER CERTIFICATIONS */}
+                        <div style={s.card}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                                <div>
+                                    <h2 style={{ ...s.h2, margin: 0 }}>Other Certifications</h2>
+                                    <p style={{ color: '#94a3b8', fontSize: 12, margin: '4px 0 0' }}>Certifications outside of Credly</p>
+                                </div>
+                                {isAdmin && <AddBtn onClick={() => setModal({ type: 'certification', title: 'Add Certification', data: { name: '', url: '' }, index: -1 })} label="Add" />}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                                 {certifications.map((cert, idx) => (
@@ -494,6 +530,7 @@ export default function Portfolio() {
                                         </div>}
                                     </div>
                                 ))}
+                                {certifications.length === 0 && !isAdmin && <p style={{ color: '#94a3b8', fontSize: 14 }}>None added yet.</p>}
                             </div>
                         </div>
                     </div>
