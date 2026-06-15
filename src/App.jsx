@@ -125,6 +125,7 @@ function SpendingMap({ receipts }) {
     const instanceRef = useRef(null)
     const [status, setStatus] = useState('idle') // idle | loading | done | error
     const [progress, setProgress] = useState('')
+    const [debug, setDebug] = useState('')
 
     useEffect(() => {
         // Load Leaflet CSS + JS once
@@ -169,6 +170,10 @@ function SpendingMap({ receipts }) {
             })
 
             const uniqueLocs = Object.keys(locMap)
+            setDebug(`${receipts.length} receipts · ${uniqueLocs.length} unique locations: ${uniqueLocs.slice(0, 5).join(', ')}${uniqueLocs.length > 5 ? '…' : ''}`)
+
+            if (uniqueLocs.length === 0) { setStatus('done'); return }
+
             const geocoded = []
 
             for (let i = 0; i < uniqueLocs.length; i++) {
@@ -190,11 +195,12 @@ function SpendingMap({ receipts }) {
                             merchants: [...locMap[loc].merchants],
                         })
                     }
-                } catch (_) { /* skip */ }
+                } catch (e) { /* skip */ }
                 // Nominatim rate limit: 1 req/sec
                 if (i < uniqueLocs.length - 1) await new Promise(r => setTimeout(r, 1100))
             }
 
+            setDebug(prev => prev + ` · geocoded ${geocoded.length}/${uniqueLocs.length}`)
             setProgress('')
 
             if (!mapRef.current) return
@@ -252,6 +258,7 @@ function SpendingMap({ receipts }) {
                     {progress || 'Geocoding locations...'}
                 </div>
             )}
+            {debug && <p style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'monospace', margin: '4px 0 8px' }}>{debug}</p>}
             {status === 'error' && <p style={{ color: '#ef4444', fontSize: 14 }}>Failed to load map.</p>}
             <div ref={mapRef} style={{ height: 380, borderRadius: 10, overflow: 'hidden', display: status === 'idle' ? 'none' : 'block', border: '1px solid #e2e8f0' }} />
         </div>
