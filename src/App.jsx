@@ -176,29 +176,20 @@ function SpendingMap({ receipts }) {
 
             const geocoded = []
 
-            for (let i = 0; i < uniqueLocs.length; i++) {
-                const loc = uniqueLocs[i]
-                setProgress(`Geocoding ${i + 1}/${uniqueLocs.length}: ${loc}`)
-                try {
-                    const query = loc.includes('Singapore') ? loc : `${loc}, Singapore`
-                    const res = await fetch(
-                        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-                        { headers: { 'Accept-Language': 'en' } }
-                    )
-                    const data = await res.json()
-                    if (data[0]) {
-                        geocoded.push({
-                            loc,
-                            lat: parseFloat(data[0].lat),
-                            lng: parseFloat(data[0].lon),
-                            ...locMap[loc],
-                            merchants: [...locMap[loc].merchants],
-                        })
+            setProgress(`Geocoding ${uniqueLocs.length} location${uniqueLocs.length !== 1 ? 's' : ''}…`)
+            try {
+                const res = await fetch('/.netlify/functions/geocode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(uniqueLocs),
+                })
+                const results = await res.json()
+                results.forEach(r => {
+                    if (r.lat && r.lng && locMap[r.loc]) {
+                        geocoded.push({ loc: r.loc, lat: r.lat, lng: r.lng, ...locMap[r.loc], merchants: [...locMap[r.loc].merchants] })
                     }
-                } catch (e) { /* skip */ }
-                // Nominatim rate limit: 1 req/sec
-                if (i < uniqueLocs.length - 1) await new Promise(r => setTimeout(r, 1100))
-            }
+                })
+            } catch (e) { setDebug(prev => prev + ` · geocode error: ${e.message}`) }
 
             setDebug(prev => prev + ` · geocoded ${geocoded.length}/${uniqueLocs.length}`)
             setProgress('')
