@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 // ── CONFIG ───────────────────────────────────────────────────
 const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || "keith"
@@ -115,6 +115,145 @@ function LoginPage({ onLogin, onClose }) {
                     Sign In
                 </button>
             </div>
+        </div>
+    )
+}
+
+// ── SPENDING MAP ─────────────────────────────────────────────
+function SpendingMap({ receipts }) {
+    const mapRef = useRef(null)
+    const instanceRef = useRef(null)
+    const [status, setStatus] = useState('idle') // idle | loading | done | error
+    const [progress, setProgress] = useState('')
+
+    useEffect(() => {
+        // Load Leaflet CSS + JS once
+        if (!document.getElementById('leaflet-css')) {
+            const link = document.createElement('link')
+            link.id = 'leaflet-css'
+            link.rel = 'stylesheet'
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+            document.head.appendChild(link)
+        }
+        if (!document.getElementById('leaflet-js')) {
+            const script = document.createElement('script')
+            script.id = 'leaflet-js'
+            script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+            document.head.appendChild(script)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!receipts.length || status !== 'idle') return
+
+        const run = async () => {
+            // Wait for Leaflet to load
+            let attempts = 0
+            while (!window.L && attempts < 30) {
+                await new Promise(r => setTimeout(r, 200))
+                attempts++
+            }
+            if (!window.L) { setStatus('error'); return }
+
+            setStatus('loading')
+
+            // Aggregate by location
+            const locMap = {}
+            receipts.forEach(r => {
+                if (!r.location) return
+                const key = r.location.trim()
+                if (!locMap[key]) locMap[key] = { count: 0, total: 0, merchants: new Set() }
+                locMap[key].count++
+                locMap[key].total += parseFloat(r.total_amount) || 0
+                if (r.merchant) locMap[key].merchants.add(r.merchant)
+            })
+
+            const uniqueLocs = Object.keys(locMap)
+            const geocoded = []
+
+            for (let i = 0; i < uniqueLocs.length; i++) {
+                const loc = uniqueLocs[i]
+                setProgress(`Geocoding ${i + 1}/${uniqueLocs.length}: ${loc}`)
+                try {
+                    const query = loc.includes('Singapore') ? loc : `${loc}, Singapore`
+                    const res = await fetch(
+                        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+                        { headers: { 'Accept-Language': 'en' } }
+                    )
+                    const data = await res.json()
+                    if (data[0]) {
+                        geocoded.push({
+                            loc,
+                            lat: parseFloat(data[0].lat),
+                            lng: parseFloat(data[0].lon),
+                            ...locMap[loc],
+                            merchants: [...locMap[loc].merchants],
+                        })
+                    }
+                } catch (_) { /* skip */ }
+                // Nominatim rate limit: 1 req/sec
+                if (i < uniqueLocs.length - 1) await new Promise(r => setTimeout(r, 1100))
+            }
+
+            setProgress('')
+
+            if (!mapRef.current) return
+            // Destroy previous instance
+            if (instanceRef.current) { instanceRef.current.remove(); instanceRef.current = null }
+
+            const L = window.L
+            const map = L.map(mapRef.current).setView([1.3521, 103.8198], 12)
+            instanceRef.current = map
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                maxZoom: 19,
+            }).addTo(map)
+
+            const maxTotal = Math.max(...geocoded.map(g => g.total), 1)
+
+            geocoded.forEach(g => {
+                const radius = 8 + (g.total / maxTotal) * 22
+                const circle = L.circleMarker([g.lat, g.lng], {
+                    radius,
+                    fillColor: '#1e40af',
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.75,
+                })
+                circle.bindPopup(`
+                    <strong>${g.loc}</strong><br/>
+                    ${g.merchants.slice(0, 3).join(', ')}<br/>
+                    <span style="color:#1e40af;font-weight:600">$${g.total.toFixed(2)}</span>
+                    &nbsp;·&nbsp;${g.count} receipt${g.count > 1 ? 's' : ''}
+                `)
+                circle.addTo(map)
+            })
+
+            setStatus('done')
+        }
+
+        run()
+    }, [receipts])
+
+    return (
+        <div>
+            {status === 'idle' && (
+                <div style={{ textAlign: 'center', padding: 32 }}>
+                    <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+                        Map geocodes your locations via OpenStreetMap — takes ~1 sec per unique place.
+                    </p>
+                    <button onClick={() => setStatus('idle')} style={{ display: 'none' }} />
+                </div>
+            )}
+            {status === 'loading' && (
+                <div style={{ padding: '16px 0', color: '#64748b', fontSize: 13 }}>
+                    {progress || 'Geocoding locations...'}
+                </div>
+            )}
+            {status === 'error' && <p style={{ color: '#ef4444', fontSize: 14 }}>Failed to load map.</p>}
+            <div ref={mapRef} style={{ height: 380, borderRadius: 10, overflow: 'hidden', display: status === 'idle' ? 'none' : 'block', border: '1px solid #e2e8f0' }} />
         </div>
     )
 }
@@ -796,6 +935,15 @@ export default function Portfolio() {
                                         ))}
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* Locations map */}
+                            <div style={{ ...s.card, marginTop: 16 }}>
+                                <h3 style={{ ...s.h2, fontSize: 16, marginBottom: 4 }}>Spending Map</h3>
+                                <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 0, marginBottom: 16 }}>
+                                    Bubble size = total spend at that location
+                                </p>
+                                <SpendingMap receipts={receipts} />
                             </div>
 
                             {/* Recent receipts table */}
