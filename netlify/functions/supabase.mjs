@@ -8,7 +8,7 @@ export async function handler(event) {
 
     try {
         // Fetch receipts ordered by date desc, limit 500
-        const url = `${SUPABASE_URL}/rest/v1/receipts?select=merchant,location,date,total,payment_method,items&order=date.desc&limit=500`
+        const url = `${SUPABASE_URL}/rest/v1/receipts?select=*&order=id.desc&limit=500`
         const res = await fetch(url, {
             headers: {
                 apikey: SUPABASE_SERVICE_KEY,

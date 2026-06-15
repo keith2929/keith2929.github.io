@@ -675,15 +675,24 @@ export default function Portfolio() {
                         </div>
                     )
 
+                    // Detect actual column names from first row
+                    const sample = receipts[0] || {}
+                    const dateKey = ['date', 'receipt_date', 'transaction_date', 'created_at', 'timestamp'].find(k => k in sample) || 'created_at'
+                    const totalKey = ['total', 'amount', 'total_amount', 'price'].find(k => k in sample) || 'total'
+                    const merchantKey = ['merchant', 'merchant_name', 'store', 'vendor'].find(k => k in sample) || 'merchant'
+                    const locationKey = ['location', 'address', 'place'].find(k => k in sample) || 'location'
+                    const paymentKey = ['payment_method', 'payment', 'method', 'pay_method'].find(k => k in sample) || 'payment_method'
+
                     // Aggregate data
                     const parseTotal = v => parseFloat(v) || 0
 
                     // Monthly totals
                     const monthly = {}
                     receipts.forEach(r => {
-                        if (!r.date) return
-                        const month = r.date.slice(0, 7)
-                        monthly[month] = (monthly[month] || 0) + parseTotal(r.total)
+                        const d = r[dateKey]
+                        if (!d) return
+                        const month = String(d).slice(0, 7)
+                        monthly[month] = (monthly[month] || 0) + parseTotal(r[totalKey])
                     })
                     const monthlyEntries = Object.entries(monthly).sort((a, b) => a[0].localeCompare(b[0])).slice(-12)
                     const maxMonthly = Math.max(...monthlyEntries.map(e => e[1]), 1)
@@ -691,8 +700,9 @@ export default function Portfolio() {
                     // Top merchants
                     const merchants = {}
                     receipts.forEach(r => {
-                        if (!r.merchant) return
-                        merchants[r.merchant] = (merchants[r.merchant] || 0) + parseTotal(r.total)
+                        const m = r[merchantKey]
+                        if (!m) return
+                        merchants[m] = (merchants[m] || 0) + parseTotal(r[totalKey])
                     })
                     const topMerchants = Object.entries(merchants).sort((a, b) => b[1] - a[1]).slice(0, 8)
                     const maxMerchant = Math.max(...topMerchants.map(e => e[1]), 1)
@@ -700,8 +710,8 @@ export default function Portfolio() {
                     // Payment methods
                     const payMethods = {}
                     receipts.forEach(r => {
-                        const pm = r.payment_method || 'Unknown'
-                        payMethods[pm] = (payMethods[pm] || 0) + parseTotal(r.total)
+                        const pm = r[paymentKey] || 'Unknown'
+                        payMethods[pm] = (payMethods[pm] || 0) + parseTotal(r[totalKey])
                     })
                     const totalSpend = Object.values(payMethods).reduce((a, b) => a + b, 0)
                     const pmEntries = Object.entries(payMethods).sort((a, b) => b[1] - a[1])
@@ -815,11 +825,11 @@ export default function Portfolio() {
                                                 <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}
                                                     onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
                                                     onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                                                    <td style={{ padding: '9px 10px', color: '#64748b', whiteSpace: 'nowrap' }}>{r.date?.slice(0, 10) || '—'}</td>
-                                                    <td style={{ padding: '9px 10px', color: '#0f172a', fontWeight: 500 }}>{r.merchant || '—'}</td>
-                                                    <td style={{ padding: '9px 10px', color: '#64748b' }}>{r.location || '—'}</td>
-                                                    <td style={{ padding: '9px 10px', color: '#64748b' }}>{r.payment_method || '—'}</td>
-                                                    <td style={{ padding: '9px 10px', color: '#0f172a', fontWeight: 600, textAlign: 'right' }}>{fmt(r.total)}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#64748b', whiteSpace: 'nowrap' }}>{String(r[dateKey] || '—').slice(0, 10)}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#0f172a', fontWeight: 500 }}>{r[merchantKey] || '—'}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#64748b' }}>{r[locationKey] || '—'}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#64748b' }}>{r[paymentKey] || '—'}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#0f172a', fontWeight: 600, textAlign: 'right' }}>{fmt(r[totalKey])}</td>
                                                 </tr>
                                             ))}
                                         </tbody>
