@@ -210,7 +210,7 @@ function SpendingMap({ receipts }) {
             const maxTotal = Math.max(...geocoded.map(g => g.total), 1)
 
             geocoded.forEach(g => {
-                const radius = 8 + (g.total / maxTotal) * 22
+                const radius = 14 + (g.total / maxTotal) * 36
                 const circle = L.circleMarker([g.lat, g.lng], {
                     radius,
                     fillColor: '#1e40af',
