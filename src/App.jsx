@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 
 // ── CONFIG ───────────────────────────────────────────────────
 const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || "keith"
@@ -119,6 +119,143 @@ function LoginPage({ onLogin, onClose }) {
     )
 }
 
+// ── SPENDING MAP ─────────────────────────────────────────────
+function SpendingMap({ receipts }) {
+    const mapRef = useRef(null)
+    const instanceRef = useRef(null)
+    const [status, setStatus] = useState('idle') // idle | loading | done | error
+    const [progress, setProgress] = useState('')
+    const [debug, setDebug] = useState('')
+
+    useEffect(() => {
+        // Load Leaflet CSS + JS once
+        if (!document.getElementById('leaflet-css')) {
+            const link = document.createElement('link')
+            link.id = 'leaflet-css'
+            link.rel = 'stylesheet'
+            link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+            document.head.appendChild(link)
+        }
+        if (!document.getElementById('leaflet-js')) {
+            const script = document.createElement('script')
+            script.id = 'leaflet-js'
+            script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'
+            document.head.appendChild(script)
+        }
+    }, [])
+
+    useEffect(() => {
+        if (!receipts.length || status !== 'idle') return
+
+        const run = async () => {
+            // Wait for Leaflet to load
+            let attempts = 0
+            while (!window.L && attempts < 30) {
+                await new Promise(r => setTimeout(r, 200))
+                attempts++
+            }
+            if (!window.L) { setStatus('error'); return }
+
+            setStatus('loading')
+
+            // Aggregate by location
+            const locMap = {}
+            receipts.forEach(r => {
+                if (!r.location) return
+                const key = r.location.trim()
+                if (!locMap[key]) locMap[key] = { count: 0, total: 0, merchants: new Set() }
+                locMap[key].count++
+                locMap[key].total += parseFloat(r.total_amount) || 0
+                if (r.merchant) locMap[key].merchants.add(r.merchant)
+            })
+
+            const uniqueLocs = Object.keys(locMap)
+            setDebug(`${receipts.length} receipts · ${uniqueLocs.length} unique locations: ${uniqueLocs.slice(0, 5).join(', ')}${uniqueLocs.length > 5 ? '…' : ''}`)
+
+            if (uniqueLocs.length === 0) { setStatus('done'); return }
+
+            const geocoded = []
+
+            setProgress(`Geocoding ${uniqueLocs.length} location${uniqueLocs.length !== 1 ? 's' : ''}…`)
+            try {
+                const res = await fetch('/.netlify/functions/geocode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(uniqueLocs),
+                })
+                const results = await res.json()
+                results.forEach(r => {
+                    if (r.lat && r.lng && locMap[r.loc]) {
+                        geocoded.push({ loc: r.loc, lat: r.lat, lng: r.lng, ...locMap[r.loc], merchants: [...locMap[r.loc].merchants] })
+                    }
+                })
+            } catch (e) { setDebug(prev => prev + ` · geocode error: ${e.message}`) }
+
+            setDebug(prev => prev + ` · geocoded ${geocoded.length}/${uniqueLocs.length}`)
+            setProgress('')
+
+            if (!mapRef.current) return
+            // Destroy previous instance
+            if (instanceRef.current) { instanceRef.current.remove(); instanceRef.current = null }
+
+            const L = window.L
+            const map = L.map(mapRef.current).setView([1.3521, 103.8198], 12)
+            instanceRef.current = map
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+                maxZoom: 19,
+            }).addTo(map)
+
+            const maxTotal = Math.max(...geocoded.map(g => g.total), 1)
+
+            geocoded.forEach(g => {
+                const radius = 14 + (g.total / maxTotal) * 36
+                const circle = L.circleMarker([g.lat, g.lng], {
+                    radius,
+                    fillColor: '#1e40af',
+                    color: '#fff',
+                    weight: 2,
+                    opacity: 1,
+                    fillOpacity: 0.75,
+                })
+                circle.bindPopup(`
+                    <strong>${g.loc}</strong><br/>
+                    ${g.merchants.slice(0, 3).join(', ')}<br/>
+                    <span style="color:#1e40af;font-weight:600">$${g.total.toFixed(2)}</span>
+                    &nbsp;·&nbsp;${g.count} receipt${g.count > 1 ? 's' : ''}
+                `)
+                circle.addTo(map)
+            })
+
+            setStatus('done')
+        }
+
+        run()
+    }, [receipts])
+
+    return (
+        <div>
+            {status === 'idle' && (
+                <div style={{ textAlign: 'center', padding: 32 }}>
+                    <p style={{ color: '#64748b', fontSize: 14, marginBottom: 16 }}>
+                        Map geocodes your locations via OpenStreetMap — takes ~1 sec per unique place.
+                    </p>
+                    <button onClick={() => setStatus('idle')} style={{ display: 'none' }} />
+                </div>
+            )}
+            {status === 'loading' && (
+                <div style={{ padding: '16px 0', color: '#64748b', fontSize: 13 }}>
+                    {progress || 'Geocoding locations...'}
+                </div>
+            )}
+            {debug && <p style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'monospace', margin: '4px 0 8px' }}>{debug}</p>}
+            {status === 'error' && <p style={{ color: '#ef4444', fontSize: 14 }}>Failed to load map.</p>}
+            <div ref={mapRef} style={{ height: 380, borderRadius: 10, overflow: 'hidden', display: status === 'idle' ? 'none' : 'block', border: '1px solid #e2e8f0' }} />
+        </div>
+    )
+}
+
 // ── MAIN APP ─────────────────────────────────────────────────
 export default function Portfolio() {
     const [tab, setTab] = useState("home")
@@ -134,6 +271,9 @@ export default function Portfolio() {
     const [credlyLoading, setCredlyLoading] = useState(false)
     const [activeFilter, setActiveFilter] = useState('All')
     const [selectedProject, setSelectedProject] = useState(null)
+    const [receipts, setReceipts] = useState([])
+    const [receiptsLoading, setReceiptsLoading] = useState(false)
+    const [receiptsError, setReceiptsError] = useState('')
 
     const [about, setAbout] = useState({})
     const [experience, setExperience] = useState([])
@@ -184,6 +324,20 @@ export default function Portfolio() {
             .catch(() => setCredlyLoading(false))
     }, [])
 
+    const loadDashboard = () => {
+        if (receipts.length > 0 || receiptsLoading) return
+        setReceiptsLoading(true)
+        setReceiptsError('')
+        fetch('/.netlify/functions/supabase')
+            .then(r => r.json())
+            .then(d => {
+                if (d.error) { setReceiptsError(d.error); setReceiptsLoading(false); return }
+                setReceipts(Array.isArray(d) ? d : [])
+                setReceiptsLoading(false)
+            })
+            .catch(e => { setReceiptsError(e.message); setReceiptsLoading(false) })
+    }
+
     const showToast = (ok) => {
         setSaveMsg(ok ? '✅ Saved to Google Sheets!' : '❌ Save failed')
         setTimeout(() => setSaveMsg(''), 3000)
@@ -232,7 +386,7 @@ export default function Portfolio() {
 
     if (showLogin) return <LoginPage onLogin={() => { setIsAdmin(true); setShowLogin(false) }} onClose={() => setShowLogin(false)} />
 
-    const navItems = ["home", "about", "experience", "skills", "projects", "resume"]
+    const navItems = ["home", "about", "experience", "skills", "projects", "resume", ...(isAdmin ? ["dashboard"] : [])]
 
     return (
         <div style={s.page}>
@@ -302,7 +456,7 @@ export default function Portfolio() {
                 <span style={{ fontWeight: 700, fontSize: 18, color: '#1e40af', letterSpacing: '-0.5px' }}>KT</span>
                 <div style={{ display: 'flex', gap: 4 }}>
                     {navItems.map(item => (
-                        <button key={item} onClick={() => setTab(item)} style={{
+                        <button key={item} onClick={() => { setTab(item); if (item === 'dashboard') loadDashboard() }} style={{
                             ...s.navBtn,
                             color: tab === item ? '#1e40af' : '#64748b',
                             borderBottom: tab === item ? '2px solid #1e40af' : '2px solid transparent',
@@ -643,6 +797,182 @@ export default function Portfolio() {
                                     </div>
                                 </div>
                             )}
+                        </div>
+                    )
+                })()}
+
+                {/* DASHBOARD */}
+                {tab === "dashboard" && isAdmin && (() => {
+                    if (receiptsLoading) return <div style={{ padding: '60px 0', textAlign: 'center', color: '#94a3b8' }}>Loading receipts...</div>
+                    if (receiptsError) return (
+                        <div style={{ ...s.card, marginTop: 24, textAlign: 'center', padding: 40 }}>
+                            <p style={{ color: '#ef4444', fontSize: 14, marginBottom: 8 }}>Failed to load data</p>
+                            <p style={{ color: '#94a3b8', fontSize: 13, fontFamily: 'monospace' }}>{receiptsError}</p>
+                            <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 16 }}>Make sure SUPABASE_URL and SUPABASE_SERVICE_KEY are set in Netlify environment variables.</p>
+                        </div>
+                    )
+
+                    // Aggregate data
+                    const parseTotal = v => parseFloat(v) || 0
+
+                    // Monthly totals
+                    const monthly = {}
+                    receipts.forEach(r => {
+                        if (!r.receipt_date) return
+                        const month = r.receipt_date.slice(0, 7)
+                        monthly[month] = (monthly[month] || 0) + parseTotal(r.total_amount)
+                    })
+                    const monthlyEntries = Object.entries(monthly).sort((a, b) => a[0].localeCompare(b[0])).slice(-12)
+                    const maxMonthly = Math.max(...monthlyEntries.map(e => e[1]), 1)
+
+                    // Top merchants
+                    const merchants = {}
+                    receipts.forEach(r => {
+                        if (!r.merchant) return
+                        merchants[r.merchant] = (merchants[r.merchant] || 0) + parseTotal(r.total_amount)
+                    })
+                    const topMerchants = Object.entries(merchants).sort((a, b) => b[1] - a[1]).slice(0, 8)
+                    const maxMerchant = Math.max(...topMerchants.map(e => e[1]), 1)
+
+                    // Payment methods
+                    const payMethods = {}
+                    receipts.forEach(r => {
+                        const pm = r.payment_method || 'Unknown'
+                        payMethods[pm] = (payMethods[pm] || 0) + parseTotal(r.total_amount)
+                    })
+                    const totalSpend = Object.values(payMethods).reduce((a, b) => a + b, 0)
+                    const pmEntries = Object.entries(payMethods).sort((a, b) => b[1] - a[1])
+
+                    const PM_COLORS = ['#1e40af', '#065f46', '#7c3aed', '#b45309', '#be123c', '#0e7490']
+
+                    // Recent receipts
+                    const recent = receipts.slice(0, 50)
+
+                    const fmt = n => `$${parseTotal(n).toFixed(2)}`
+                    const fmtMonth = m => {
+                        const [y, mo] = m.split('-')
+                        return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(mo) - 1]} ${y}`
+                    }
+
+                    return (
+                        <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 8 }}>
+                                <h2 style={{ ...s.h2, margin: 0 }}>Spending Dashboard</h2>
+                                <button onClick={() => { setReceipts([]); loadDashboard() }} style={{ ...s.addBtn }}>↻ Refresh</button>
+                            </div>
+                            <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 0, marginBottom: 24 }}>
+                                {receipts.length} receipts · Total {fmt(totalSpend)}
+                            </p>
+
+                            {/* KPI row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12, marginBottom: 20 }}>
+                                {[
+                                    { label: 'Total Spend', value: fmt(totalSpend) },
+                                    { label: 'Receipts', value: receipts.length },
+                                    { label: 'Avg per Receipt', value: receipts.length ? fmt(totalSpend / receipts.length) : '$0' },
+                                    { label: 'Unique Merchants', value: Object.keys(merchants).length },
+                                ].map(k => (
+                                    <div key={k.label} style={{ ...s.card, marginTop: 0, padding: 20 }}>
+                                        <p style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1, margin: '0 0 8px' }}>{k.label}</p>
+                                        <p style={{ color: '#0f172a', fontSize: 24, fontWeight: 700, margin: 0 }}>{k.value}</p>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {/* Monthly spend chart */}
+                            <div style={{ ...s.card, marginTop: 0 }}>
+                                <h3 style={{ ...s.h2, fontSize: 16 }}>Monthly Spend</h3>
+                                {monthlyEntries.length === 0
+                                    ? <p style={{ color: '#94a3b8', fontSize: 14 }}>No data yet.</p>
+                                    : <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 140, paddingBottom: 28, position: 'relative' }}>
+                                        {monthlyEntries.map(([month, val]) => (
+                                            <div key={month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
+                                                <span style={{ color: '#64748b', fontSize: 10, fontWeight: 600 }}>{fmt(val)}</span>
+                                                <div style={{ width: '100%', background: '#1e40af', borderRadius: '4px 4px 0 0', height: `${(val / maxMonthly) * 90}px`, minHeight: 2, transition: 'height 0.3s' }} />
+                                                <span style={{ color: '#94a3b8', fontSize: 9, whiteSpace: 'nowrap', transform: 'rotate(-35deg)', transformOrigin: 'top center', marginTop: 6 }}>{fmtMonth(month)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                }
+                            </div>
+
+                            {/* Merchants + Payment methods row */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginTop: 16 }}>
+                                {/* Top merchants */}
+                                <div style={{ ...s.card, marginTop: 0 }}>
+                                    <h3 style={{ ...s.h2, fontSize: 16 }}>Top Merchants</h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                        {topMerchants.map(([name, val]) => (
+                                            <div key={name}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <span style={{ color: '#0f172a', fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '70%' }}>{name}</span>
+                                                    <span style={{ color: '#64748b', fontSize: 12 }}>{fmt(val)}</span>
+                                                </div>
+                                                <div style={{ height: 6, background: '#f1f5f9', borderRadius: 3 }}>
+                                                    <div style={{ height: 6, background: '#1e40af', borderRadius: 3, width: `${(val / maxMerchant) * 100}%` }} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Payment methods */}
+                                <div style={{ ...s.card, marginTop: 0 }}>
+                                    <h3 style={{ ...s.h2, fontSize: 16 }}>By Payment Method</h3>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                                        {pmEntries.map(([pm, val], i) => (
+                                            <div key={pm}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                                                    <span style={{ color: '#0f172a', fontSize: 13, fontWeight: 500 }}>{pm}</span>
+                                                    <span style={{ color: '#64748b', fontSize: 12 }}>{totalSpend ? `${((val / totalSpend) * 100).toFixed(1)}%` : ''} · {fmt(val)}</span>
+                                                </div>
+                                                <div style={{ height: 8, background: '#f1f5f9', borderRadius: 4 }}>
+                                                    <div style={{ height: 8, background: PM_COLORS[i % PM_COLORS.length], borderRadius: 4, width: totalSpend ? `${(val / totalSpend) * 100}%` : '0%' }} />
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Locations map */}
+                            <div style={{ ...s.card, marginTop: 16 }}>
+                                <h3 style={{ ...s.h2, fontSize: 16, marginBottom: 4 }}>Spending Map</h3>
+                                <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 0, marginBottom: 16 }}>
+                                    Bubble size = total spend at that location
+                                </p>
+                                <SpendingMap receipts={receipts} />
+                            </div>
+
+                            {/* Recent receipts table */}
+                            <div style={{ ...s.card, marginTop: 16 }}>
+                                <h3 style={{ ...s.h2, fontSize: 16, marginBottom: 16 }}>Recent Receipts</h3>
+                                <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                                        <thead>
+                                            <tr style={{ borderBottom: '2px solid #e2e8f0' }}>
+                                                {['Date', 'Merchant', 'Location', 'Payment', 'Total'].map(h => (
+                                                    <th key={h} style={{ textAlign: 'left', padding: '6px 10px', color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>{h}</th>
+                                                ))}
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {recent.map((r, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid #f1f5f9' }}
+                                                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
+                                                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                                                    <td style={{ padding: '9px 10px', color: '#64748b', whiteSpace: 'nowrap' }}>{r.receipt_date?.slice(0, 10) || '—'}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#0f172a', fontWeight: 500 }}>{r.merchant || '—'}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#64748b' }}>{r.location || '—'}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#64748b' }}>{r.payment_method || '—'}</td>
+                                                    <td style={{ padding: '9px 10px', color: '#0f172a', fontWeight: 600, textAlign: 'right' }}>{fmt(r.total_amount)}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                    {recent.length === 0 && <p style={{ color: '#94a3b8', fontSize: 14, textAlign: 'center', padding: 32 }}>No receipts found.</p>}
+                                </div>
+                            </div>
                         </div>
                     )
                 })()}
