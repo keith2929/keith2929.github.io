@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import LeaseCalculator from './LeaseCalculator.jsx'
 
 // ── CONFIG ───────────────────────────────────────────────────
 const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || "keith"
@@ -768,7 +769,12 @@ export default function Portfolio() {
                                                 <p style={{ color: '#64748b', fontSize: 13, marginBottom: 16, lineHeight: 1.6, flex: 1 }}>{repo.description || 'No description provided'}</p>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                                     <span style={{ color: '#94a3b8', fontSize: 12 }}>{repo.language}</span>
-                                                    <a href={repo.html_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', fontSize: 13, fontWeight: 500 }}>View Code →</a>
+                                                    <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+                                                        {repo.name === 'lease-calc' && (
+                                                            <button onClick={() => setTab('leaseCalc')} style={{ background: 'none', border: 'none', padding: 0, color: '#1e40af', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Try it out →</button>
+                                                        )}
+                                                        <a href={repo.html_url} target="_blank" rel="noopener noreferrer" style={{ color: '#1e40af', fontSize: 13, fontWeight: 500 }}>View Code →</a>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
@@ -997,6 +1003,16 @@ export default function Portfolio() {
                     </div>
                 )}
             </div>
+
+            {/* LEASE CALCULATOR */}
+            {tab === "leaseCalc" && (
+                <div>
+                    <div style={{ maxWidth: 1080, margin: '0 auto', padding: '20px 24px 0' }}>
+                        <button onClick={() => setTab('projects')} style={{ background: 'none', border: 'none', padding: 0, color: '#1e40af', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>← Back to Projects</button>
+                    </div>
+                    <LeaseCalculator />
+                </div>
+            )}
 
             <footer style={{ textAlign: 'center', padding: 24, color: '#94a3b8', fontSize: 13, borderTop: '1px solid #e2e8f0' }}>
                 © {new Date().getFullYear()} Tan Kai Jun Keith · Singapore
