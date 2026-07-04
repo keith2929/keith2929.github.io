@@ -315,8 +315,8 @@ export default function Portfolio() {
         }).catch(() => setLoading(false))
 
         setReposLoading(true)
-        fetch(`https://api.github.com/users/${GITHUB_USERNAME}/repos?sort=updated&per_page=6`)
-            .then(r => r.json()).then(d => { setRepos(d.slice(0, 6)); setReposLoading(false) })
+        fetch(`https://api.github.com/users/${GITHUB_USERNAME}/repos?sort=updated&per_page=100`)
+            .then(r => r.json()).then(d => { setRepos(d); setReposLoading(false) })
             .catch(() => setReposLoading(false))
 
         setCredlyLoading(true)
