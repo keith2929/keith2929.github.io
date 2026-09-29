@@ -17,6 +17,7 @@ const HEADERS = {
     home: ['available_text', 'name', 'subtitle', 'description', 'badge1', 'badge2', 'badge3'],
     education: ['school', 'degree', 'major', 'relevant', 'period'],
     resume: ['url'],
+    volunteer: ['organisation', 'role', 'period', 'points', 'color'],
 }
 
 const CARD_GRADIENTS = [
@@ -281,6 +282,7 @@ export default function Portfolio() {
     const [skills, setSkills] = useState([])
     const [certifications, setCertifications] = useState([])
     const [projects, setProjects] = useState([])
+    const [volunteer, setVolunteer] = useState([])
     const [homeData, setHomeData] = useState({
         available_text: "Open to full-time opportunities · Graduating Jun 2026",
         name: "Keith Tan",
@@ -302,7 +304,8 @@ export default function Portfolio() {
             readSheet('about'), readSheet('experience'), readSheet('skills'),
             readSheet('certifications'), readSheet('projects'),
             readSheet('home'), readSheet('education'), readSheet('resume'),
-        ]).then(([a, exp, sk, cert, proj, hm, edu, res]) => {
+            readSheet('volunteer'),
+        ]).then(([a, exp, sk, cert, proj, hm, edu, res, vol]) => {
             if (a[0]) setAbout(a[0])
             if (exp.length) setExperience(exp)
             if (sk.length) setSkills(sk)
@@ -311,6 +314,7 @@ export default function Portfolio() {
             if (hm[0]) setHomeData(hm[0])
             if (edu[0]) setEducation(edu[0])
             if (res[0]?.url) setResumeUrl(res[0].url)
+            if (vol.length) setVolunteer(vol)
             setLoading(false)
         }).catch(() => setLoading(false))
 
@@ -356,6 +360,7 @@ export default function Portfolio() {
         if (type === 'skill') { const u = [...skills]; index === -1 ? u.push(data) : u[index] = data; setSkills(u); ok = await writeSheet('skills', u) }
         if (type === 'certification') { const u = [...certifications]; index === -1 ? u.push(data) : u[index] = data; setCertifications(u); ok = await writeSheet('certifications', u) }
         if (type === 'project') { const u = [...projects]; index === -1 ? u.push(data) : u[index] = data; setProjects(u); ok = await writeSheet('projects', u) }
+        if (type === 'volunteer') { const u = [...volunteer]; index === -1 ? u.push(data) : u[index] = data; setVolunteer(u); ok = await writeSheet('volunteer', u) }
         if (type === 'resume') { setResumeUrl(data.url); ok = await writeSheet('resume', [{ url: data.url }]) }
 
         setSaving(false)
@@ -365,8 +370,8 @@ export default function Portfolio() {
 
     const deleteItem = async (type, index) => {
         if (!confirm('Delete this item?')) return
-        const map = { experience: [experience, setExperience], skill: [skills, setSkills], certification: [certifications, setCertifications], project: [projects, setProjects] }
-        const sheetMap = { experience: 'experience', skill: 'skills', certification: 'certifications', project: 'projects' }
+        const map = { experience: [experience, setExperience], skill: [skills, setSkills], certification: [certifications, setCertifications], project: [projects, setProjects], volunteer: [volunteer, setVolunteer] }
+        const sheetMap = { experience: 'experience', skill: 'skills', certification: 'certifications', project: 'projects', volunteer: 'volunteer' }
         const [arr, setter] = map[type]
         const updated = arr.filter((_, i) => i !== index)
         setter(updated)
@@ -387,7 +392,7 @@ export default function Portfolio() {
 
     if (showLogin) return <LoginPage onLogin={() => { setIsAdmin(true); setShowLogin(false) }} onClose={() => setShowLogin(false)} />
 
-    const navItems = ["home", "about", "experience", "skills", "projects", "resume", ...(isAdmin ? ["dashboard"] : [])]
+    const navItems = ["home", "about", "experience", "skills", "projects", "volunteer", "resume", ...(isAdmin ? ["dashboard"] : [])]
 
     return (
         <div style={s.page}>
@@ -437,6 +442,13 @@ export default function Portfolio() {
                         <Field label="Period" value={modal.data.period || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, period: v } }))} />
                         <Field label="Description" value={modal.data.description || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, description: v } }))} multiline />
                         <Field label="Tags (comma separated)" value={modal.data.tags || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, tags: v } }))} />
+                    </>}
+                    {modal.type === 'volunteer' && <>
+                        <Field label="Organisation" value={modal.data.organisation || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, organisation: v } }))} />
+                        <Field label="Role" value={modal.data.role || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, role: v } }))} />
+                        <Field label="Period" value={modal.data.period || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, period: v } }))} />
+                        <Field label="Bullet points (separate with ;)" value={modal.data.points || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, points: v } }))} multiline />
+                        <Field label="Colour (hex e.g. #10b981)" value={modal.data.color || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, color: v } }))} />
                     </>}
                     {modal.type === 'resume' && <>
                         <Field label="Google Drive URL" value={modal.data.url || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, url: v } }))} />
@@ -984,6 +996,40 @@ export default function Portfolio() {
                 })()}
 
                 {/* RESUME */}
+                {/* VOLUNTEER */}
+                {tab === "volunteer" && (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 8 }}>
+                            <h2 style={{ ...s.h2, margin: 0 }}>Volunteer &amp; Community</h2>
+                            {isAdmin && <AddBtn onClick={() => setModal({ type: 'volunteer', title: 'Add Volunteer Work', data: { organisation: '', role: '', period: '', points: '', color: '#10b981' }, index: -1 })} label="Add Role" />}
+                        </div>
+                        {volunteer.length === 0 && <p style={{ color: '#94a3b8', fontSize: 14 }}>No volunteer work yet.</p>}
+                        {volunteer.map((v, idx) => {
+                            const c = v.color || '#10b981'
+                            return (
+                                <div key={idx} style={{ ...s.card, borderLeft: `3px solid ${c}` }}>
+                                    <div style={s.cardHeader}>
+                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                            <p style={{ color: c, fontWeight: 700, fontSize: 15, margin: 0 }}>{v.organisation}</p>
+                                            <p style={{ color: '#0f172a', fontSize: 14, margin: '2px 0 8px', fontWeight: 500 }}>{v.role}</p>
+                                            <span style={s.badge}>{v.period}</span>
+                                        </div>
+                                        {isAdmin && <div style={{ display: 'flex', gap: 4, marginLeft: 8, flexShrink: 0 }}>
+                                            <EditBtn onClick={() => setModal({ type: 'volunteer', title: 'Edit Volunteer Work', data: { ...v }, index: idx })} />
+                                            <DeleteBtn onClick={() => deleteItem('volunteer', idx)} />
+                                        </div>}
+                                    </div>
+                                    <ul style={{ margin: '12px 0 0', paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                                        {(v.points || '').split(';').map((p, i) => p.trim() && (
+                                            <li key={i} style={{ color: '#475569', lineHeight: 1.6, fontSize: 13 }}>{p.trim()}</li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )
+                        })}
+                    </div>
+                )}
+
                 {tab === "resume" && (
                     <div style={{ ...s.card, marginTop: 24, textAlign: 'center', padding: 56 }}>
                         <div style={{ width: 64, height: 64, background: '#eff6ff', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>📄</div>
