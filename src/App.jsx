@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback, useSyncExternalStore } from 'react'
 import LeaseCalculator from './LeaseCalculator.jsx'
 
 // ── CONFIG ───────────────────────────────────────────────────
@@ -6,7 +6,9 @@ const ADMIN_USERNAME = import.meta.env.VITE_ADMIN_USERNAME || "keith"
 const ADMIN_PASSWORD = import.meta.env.VITE_ADMIN_PASSWORD
 const GITHUB_USERNAME = "keith2929"
 const CREDLY_USERNAME = "keith-tan.d370937e"
-const API = import.meta.env.VITE_API_URL || "http://localhost:3001/api/sheet"
+// relative by default: Netlify redirects /api/sheet/* to the sheet function,
+// and vite.config.js proxies the same path to server.js in dev
+const API = import.meta.env.VITE_API_URL || "/api/sheet"
 
 const HEADERS = {
     about: ['bio', 'email', 'phone', 'linkedin', 'github'],
@@ -17,6 +19,7 @@ const HEADERS = {
     home: ['available_text', 'name', 'subtitle', 'description', 'badge1', 'badge2', 'badge3'],
     education: ['school', 'degree', 'major', 'relevant', 'period'],
     resume: ['url'],
+    volunteer: ['organisation', 'role', 'period', 'points', 'color'],
 }
 
 const CARD_GRADIENTS = [
@@ -53,23 +56,29 @@ async function writeSheet(name, rows) {
 }
 
 // ── UI COMPONENTS ────────────────────────────────────────────
-function EditBtn({ onClick }) {
-    return <button onClick={onClick} style={s.editBtn} title="Edit">✏️</button>
+function EditBtn({ onClick, label = 'item' }) {
+    return <button onClick={onClick} style={s.editBtn} title={`Edit ${label}`} aria-label={`Edit ${label}`}><span aria-hidden="true">✏️</span></button>
 }
-function DeleteBtn({ onClick }) {
-    return <button onClick={onClick} style={{ ...s.editBtn, background: '#fef2f2', color: '#ef4444', borderColor: '#fecaca' }} title="Delete">🗑</button>
+function DeleteBtn({ onClick, label = 'item' }) {
+    return <button onClick={onClick} style={{ ...s.editBtn, background: '#fef2f2', color: '#ef4444', borderColor: '#fecaca' }} title={`Delete ${label}`} aria-label={`Delete ${label}`}><span aria-hidden="true">🗑</span></button>
 }
 function AddBtn({ onClick, label = "Add" }) {
     return <button onClick={onClick} style={s.addBtn}>+ {label}</button>
 }
 
 function Modal({ title, onClose, onSave, saving, children }) {
+    useEffect(() => {
+        const onKey = e => { if (e.key === 'Escape') onClose() }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [onClose])
+
     return (
         <div style={s.overlay}>
-            <div style={s.modal}>
+            <div style={s.modal} role="dialog" aria-modal="true" aria-label={title}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
                     <h3 style={{ margin: 0, color: '#0f172a', fontSize: 18 }}>{title}</h3>
-                    <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer' }}>×</button>
+                    <button onClick={onClose} aria-label="Close dialog" style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer' }}>×</button>
                 </div>
                 {children}
                 <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
@@ -106,7 +115,7 @@ function LoginPage({ onLogin, onClose }) {
     return (
         <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, padding: 40, width: 340, position: 'relative', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}>
-                <button onClick={onClose} style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
+                <button onClick={onClose} aria-label="Close login" style={{ position: 'absolute', top: 16, right: 16, background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer', lineHeight: 1 }}>×</button>
                 <h2 style={{ color: '#0f172a', marginBottom: 8, fontSize: 22 }}>Admin Login</h2>
                 <p style={{ color: '#64748b', fontSize: 13, marginBottom: 28 }}>Sign in to edit your portfolio</p>
                 <Field label="Username" value={username} onChange={setUsername} />
@@ -116,6 +125,162 @@ function LoginPage({ onLogin, onClose }) {
                     Sign In
                 </button>
             </div>
+        </div>
+    )
+}
+
+// ── TIMELINE ─────────────────────────────────────────────────
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+
+function parseDate(str) {
+    const s = (str || '').trim().toLowerCase()
+    if (!s) return null
+    if (/present|current|now|ongoing/.test(s)) {
+        const now = new Date()
+        return { year: now.getFullYear(), month: now.getMonth() + 1 }
+    }
+    const year = s.match(/\d{4}/)
+    if (!year) return null
+    const month = MONTHS.findIndex(m => s.includes(m))
+    return { year: parseInt(year[0], 10), month: month === -1 ? 1 : month + 1 }
+}
+
+function parsePeriod(period) {
+    const parts = (period || '').split(/\s*[–—-]\s*/)
+    const start = parseDate(parts[0])
+    const end = parseDate(parts[1]) || start
+    return { start, end }
+}
+
+// "May 2025 – Aug 2025" → "4 mos" (inclusive of both end months, same as LinkedIn)
+function durationLabel(start, end) {
+    if (!start || !end) return ''
+    const months = (end.year - start.year) * 12 + (end.month - start.month) + 1
+    if (months < 1) return ''
+    const yrs = Math.floor(months / 12)
+    const mos = months % 12
+    const bits = []
+    if (yrs) bits.push(`${yrs} yr${yrs > 1 ? 's' : ''}`)
+    if (mos) bits.push(`${mos} mo${mos > 1 ? 's' : ''}`)
+    return bits.join(' ')
+}
+
+function useIsNarrow(breakpoint = 760) {
+    const query = `(max-width: ${breakpoint - 1}px)`
+    const subscribe = useCallback(onChange => {
+        const mq = window.matchMedia(query)
+        mq.addEventListener('change', onChange)
+        return () => mq.removeEventListener('change', onChange)
+    }, [query])
+    return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches, () => false)
+}
+
+function TimelineCard({ entry, titleKey, isAdmin, onEdit, onDelete }) {
+    const { item, index, start, end } = entry
+    const color = item.color || '#1e40af'
+    const duration = durationLabel(start, end)
+    const points = (item.points || '').split(';').map(p => p.trim()).filter(Boolean)
+
+    return (
+        <div
+            style={{ background: '#fff', border: '1px solid #e2e8f0', borderLeft: `3px solid ${color}`, borderRadius: 10, padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,0.06)', transition: 'transform 0.15s, box-shadow 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 20px rgba(15,23,42,0.09)' }}
+            onMouseLeave={e => { e.currentTarget.style.transform = 'none'; e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.06)' }}
+        >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ minWidth: 0 }}>
+                    <p style={{ color, fontWeight: 700, fontSize: 14.5, margin: 0, lineHeight: 1.35 }}>{item[titleKey]}</p>
+                    <p style={{ color: '#0f172a', fontSize: 13, margin: '3px 0 9px', fontWeight: 500 }}>{item.role}</p>
+                </div>
+                {isAdmin && (
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                        <EditBtn onClick={() => onEdit(item, index)} label={item[titleKey]} />
+                        <DeleteBtn onClick={() => onDelete(index)} label={item[titleKey]} />
+                    </div>
+                )}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: points.length ? 12 : 0 }}>
+                <span style={s.badge}>{item.period}</span>
+                {duration && <span style={{ ...s.badge, background: '#fff', color: '#94a3b8' }}>{duration}</span>}
+            </div>
+            {points.length > 0 && (
+                <ul style={{ margin: 0, paddingLeft: 18, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {points.map((p, i) => (
+                        <li key={i} style={{ color: '#475569', lineHeight: 1.65, fontSize: 13 }}>{p}</li>
+                    ))}
+                </ul>
+            )}
+        </div>
+    )
+}
+
+// Flow-based timeline: cards size themselves, so a long entry can never overlap
+// the next one. Centred + alternating on desktop, single left rail on mobile.
+function Timeline({ items, titleKey = 'company', isAdmin, onEdit, onDelete, emptyText = 'Nothing here yet.' }) {
+    const narrow = useIsNarrow()
+
+    const entries = items
+        .map((item, index) => ({ item, index, ...parsePeriod(item.period) }))
+        .sort((a, b) => (b.start?.year || 0) - (a.start?.year || 0) || (b.start?.month || 0) - (a.start?.month || 0))
+
+    if (entries.length === 0) return <p style={{ color: '#94a3b8', fontSize: 14 }}>{emptyText}</p>
+
+    // group consecutive entries that start in the same year under one year marker
+    const groups = []
+    entries.forEach(entry => {
+        const year = entry.start?.year ?? '—'
+        const last = groups[groups.length - 1]
+        if (last && last.year === year) last.entries.push(entry)
+        else groups.push({ year, entries: [entry] })
+    })
+
+    const RAIL = 12
+    let flip = 0
+
+    return (
+        <div style={{ position: 'relative' }}>
+            <div style={{
+                position: 'absolute', top: 4, bottom: 4, width: 2, zIndex: 0,
+                left: narrow ? RAIL - 1 : '50%',
+                transform: narrow ? 'none' : 'translateX(-50%)',
+                background: 'linear-gradient(180deg, rgba(226,232,240,0) 0%, #e2e8f0 44px, #e2e8f0 calc(100% - 44px), rgba(226,232,240,0) 100%)',
+            }} />
+
+            {groups.map(group => (
+                <div key={group.year}>
+                    <div style={{ display: 'flex', justifyContent: narrow ? 'flex-start' : 'center', marginBottom: 18, position: 'relative', zIndex: 2 }}>
+                        <span style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 999, padding: '4px 14px', fontSize: 12, fontWeight: 700, color: '#475569', letterSpacing: 0.4 }}>
+                            {group.year}
+                        </span>
+                    </div>
+
+                    {group.entries.map(entry => {
+                        const isLeft = !narrow && flip++ % 2 === 0
+                        const color = entry.item.color || '#1e40af'
+                        return (
+                            <div key={entry.index} style={{
+                                position: 'relative', marginBottom: 22, display: 'flex',
+                                justifyContent: narrow || isLeft ? 'flex-start' : 'flex-end',
+                                paddingLeft: narrow ? RAIL + 22 : 0,
+                            }}>
+                                <div style={{ width: narrow ? '100%' : 'calc(50% - 30px)', zIndex: 1 }}>
+                                    <TimelineCard entry={entry} titleKey={titleKey} isAdmin={isAdmin} onEdit={onEdit} onDelete={onDelete} />
+                                </div>
+                                <div style={{
+                                    position: 'absolute', top: 27, height: 2, background: '#e2e8f0', zIndex: 0,
+                                    ...(narrow ? { left: RAIL + 1, width: 21 } : (isLeft ? { right: '50%', width: 30 } : { left: '50%', width: 30 })),
+                                }} />
+                                <div style={{
+                                    position: 'absolute', top: 21, width: 13, height: 13, borderRadius: '50%',
+                                    left: narrow ? RAIL - 6 : '50%',
+                                    transform: narrow ? 'none' : 'translateX(-50%)',
+                                    background: color, border: '2px solid #f8fafc', boxShadow: `0 0 0 3px ${color}22`, zIndex: 3,
+                                }} />
+                            </div>
+                        )
+                    })}
+                </div>
+            ))}
         </div>
     )
 }
@@ -259,6 +424,7 @@ function SpendingMap({ receipts }) {
 
 // ── MAIN APP ─────────────────────────────────────────────────
 export default function Portfolio() {
+    const narrow = useIsNarrow()
     const [tab, setTab] = useState("home")
     const [loading, setLoading] = useState(true)
     const [isAdmin, setIsAdmin] = useState(false)
@@ -267,9 +433,9 @@ export default function Portfolio() {
     const [saveMsg, setSaveMsg] = useState('')
     const [modal, setModal] = useState(null)
     const [repos, setRepos] = useState([])
-    const [reposLoading, setReposLoading] = useState(false)
+    const [reposLoading, setReposLoading] = useState(true)
     const [credlyBadges, setCredlyBadges] = useState([])
-    const [credlyLoading, setCredlyLoading] = useState(false)
+    const [credlyLoading, setCredlyLoading] = useState(true)
     const [activeFilter, setActiveFilter] = useState('All')
     const [selectedProject, setSelectedProject] = useState(null)
     const [receipts, setReceipts] = useState([])
@@ -281,6 +447,7 @@ export default function Portfolio() {
     const [skills, setSkills] = useState([])
     const [certifications, setCertifications] = useState([])
     const [projects, setProjects] = useState([])
+    const [volunteer, setVolunteer] = useState([])
     const [homeData, setHomeData] = useState({
         available_text: "Open to full-time opportunities · Graduating Jun 2026",
         name: "Keith Tan",
@@ -302,7 +469,8 @@ export default function Portfolio() {
             readSheet('about'), readSheet('experience'), readSheet('skills'),
             readSheet('certifications'), readSheet('projects'),
             readSheet('home'), readSheet('education'), readSheet('resume'),
-        ]).then(([a, exp, sk, cert, proj, hm, edu, res]) => {
+            readSheet('volunteer'),
+        ]).then(([a, exp, sk, cert, proj, hm, edu, res, vol]) => {
             if (a[0]) setAbout(a[0])
             if (exp.length) setExperience(exp)
             if (sk.length) setSkills(sk)
@@ -311,19 +479,40 @@ export default function Portfolio() {
             if (hm[0]) setHomeData(hm[0])
             if (edu[0]) setEducation(edu[0])
             if (res[0]?.url) setResumeUrl(res[0].url)
+            if (vol?.length) setVolunteer(vol)
             setLoading(false)
         }).catch(() => setLoading(false))
 
-        setReposLoading(true)
-        fetch(`https://api.github.com/users/${GITHUB_USERNAME}/repos?sort=updated&per_page=100`)
-            .then(r => r.json()).then(d => { setRepos(d); setReposLoading(false) })
-            .catch(() => setReposLoading(false))
+        const loadRepos = async () => {
+            setReposLoading(true)
+            const sources = [
+                `/.netlify/functions/github?username=${GITHUB_USERNAME}`,
+                `https://api.github.com/users/${GITHUB_USERNAME}/repos?sort=updated&per_page=100`,
+            ]
+            for (const url of sources) {
+                try {
+                    const res = await fetch(url)
+                    if (!res.ok) continue
+                    const data = await res.json()
+                    // the GitHub API answers a rate-limit with an object, not an array
+                    if (Array.isArray(data)) { setRepos(data); break }
+                } catch { /* try the next source */ }
+            }
+            setReposLoading(false)
+        }
+        loadRepos()
 
-        setCredlyLoading(true)
         fetch(`/.netlify/functions/credly?username=${CREDLY_USERNAME}`)
             .then(r => r.json()).then(d => { setCredlyBadges(d.data || []); setCredlyLoading(false) })
             .catch(() => setCredlyLoading(false))
     }, [])
+
+    useEffect(() => {
+        if (!selectedProject) return
+        const onKey = e => { if (e.key === 'Escape') setSelectedProject(null) }
+        window.addEventListener('keydown', onKey)
+        return () => window.removeEventListener('keydown', onKey)
+    }, [selectedProject])
 
     const loadDashboard = () => {
         if (receipts.length > 0 || receiptsLoading) return
@@ -356,6 +545,7 @@ export default function Portfolio() {
         if (type === 'skill') { const u = [...skills]; index === -1 ? u.push(data) : u[index] = data; setSkills(u); ok = await writeSheet('skills', u) }
         if (type === 'certification') { const u = [...certifications]; index === -1 ? u.push(data) : u[index] = data; setCertifications(u); ok = await writeSheet('certifications', u) }
         if (type === 'project') { const u = [...projects]; index === -1 ? u.push(data) : u[index] = data; setProjects(u); ok = await writeSheet('projects', u) }
+        if (type === 'volunteer') { const u = [...volunteer]; index === -1 ? u.push(data) : u[index] = data; setVolunteer(u); ok = await writeSheet('volunteer', u) }
         if (type === 'resume') { setResumeUrl(data.url); ok = await writeSheet('resume', [{ url: data.url }]) }
 
         setSaving(false)
@@ -365,8 +555,8 @@ export default function Portfolio() {
 
     const deleteItem = async (type, index) => {
         if (!confirm('Delete this item?')) return
-        const map = { experience: [experience, setExperience], skill: [skills, setSkills], certification: [certifications, setCertifications], project: [projects, setProjects] }
-        const sheetMap = { experience: 'experience', skill: 'skills', certification: 'certifications', project: 'projects' }
+        const map = { experience: [experience, setExperience], skill: [skills, setSkills], certification: [certifications, setCertifications], project: [projects, setProjects], volunteer: [volunteer, setVolunteer] }
+        const sheetMap = { experience: 'experience', skill: 'skills', certification: 'certifications', project: 'projects', volunteer: 'volunteer' }
         const [arr, setter] = map[type]
         const updated = arr.filter((_, i) => i !== index)
         setter(updated)
@@ -424,6 +614,13 @@ export default function Portfolio() {
                         <Field label="Bullet points (separate with ;)" value={modal.data.points || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, points: v } }))} multiline />
                         <Field label="Colour (hex e.g. #1e40af)" value={modal.data.color || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, color: v } }))} />
                     </>}
+                    {modal.type === 'volunteer' && <>
+                        <Field label="Organisation" value={modal.data.organisation || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, organisation: v } }))} />
+                        <Field label="Role" value={modal.data.role || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, role: v } }))} />
+                        <Field label="Period" value={modal.data.period || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, period: v } }))} />
+                        <Field label="Bullet points (separate with ;)" value={modal.data.points || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, points: v } }))} multiline />
+                        <Field label="Colour (hex e.g. #10b981)" value={modal.data.color || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, color: v } }))} />
+                    </>}
                     {modal.type === 'skill' && <>
                         <Field label="Category" value={modal.data.category || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, category: v } }))} />
                         <Field label="Skills (comma separated)" value={modal.data.skills || ''} onChange={v => setModal(m => ({ ...m, data: { ...m.data, skills: v } }))} multiline />
@@ -453,12 +650,16 @@ export default function Portfolio() {
             )}
 
             {/* NAVBAR */}
-            <nav style={s.nav}>
-                <span style={{ fontWeight: 700, fontSize: 18, color: '#1e40af', letterSpacing: '-0.5px' }}>KT</span>
-                <div style={{ display: 'flex', gap: 4 }}>
+            <nav style={{ ...s.nav, padding: narrow ? '0 12px' : '0 24px', gap: 8 }}>
+                <span style={{ fontWeight: 700, fontSize: 18, color: '#1e40af', letterSpacing: '-0.5px', flexShrink: 0 }}>KT</span>
+                <div className="nav-scroll" style={{ display: 'flex', gap: 4, overflowX: 'auto', flex: 1, justifyContent: narrow ? 'flex-start' : 'center' }}>
                     {navItems.map(item => (
-                        <button key={item} onClick={() => { setTab(item); if (item === 'dashboard') loadDashboard() }} style={{
+                        <button key={item} onClick={() => { setTab(item); if (item === 'dashboard') loadDashboard() }} aria-current={tab === item ? 'page' : undefined} style={{
                             ...s.navBtn,
+                            padding: narrow ? '17px 8px 15px' : '18px 10px 16px',
+                            fontSize: narrow ? 13 : 14,
+                            whiteSpace: 'nowrap',
+                            flexShrink: 0,
                             color: tab === item ? '#1e40af' : '#64748b',
                             borderBottom: tab === item ? '2px solid #1e40af' : '2px solid transparent',
                             fontWeight: tab === item ? 600 : 400,
@@ -467,7 +668,7 @@ export default function Portfolio() {
                         </button>
                     ))}
                 </div>
-                <div>
+                <div style={{ flexShrink: 0 }}>
                     {isAdmin
                         ? <button onClick={() => setIsAdmin(false)} style={{ ...s.btn, background: 'transparent', border: '1px solid #e2e8f0', color: '#64748b', fontSize: 13, padding: '6px 14px' }}>Log out</button>
                         : <button onClick={() => setShowLogin(true)} style={{ ...s.btn, background: 'transparent', border: '1px solid #e2e8f0', color: '#64748b', fontSize: 13, padding: '6px 14px' }}>Admin</button>
@@ -479,10 +680,10 @@ export default function Portfolio() {
             {tab === "home" && (
                 <section style={s.hero}>
                     {isAdmin && <div style={{ position: 'absolute', top: 70, right: 24 }}>
-                        <EditBtn onClick={() => setModal({ type: 'homeData', title: 'Edit Home Page', data: { ...homeData } })} />
+                        <EditBtn onClick={() => setModal({ type: 'homeData', title: 'Edit Home Page', data: { ...homeData } })} label="home page" />
                     </div>}
                     <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 20, padding: '6px 16px', marginBottom: 24 }}>
-                        <span style={{ color: '#1d4ed8', fontSize: 13, fontWeight: 500 }}>🟢 {homeData.available_text}</span>
+                        <span style={{ color: '#1d4ed8', fontSize: 13, fontWeight: 500 }}><span aria-hidden="true">🟢</span> {homeData.available_text}</span>
                     </div>
                     <h1 style={{ fontSize: 60, margin: '0 0 12px', color: '#0f172a', fontWeight: 700, letterSpacing: '-2px', textAlign: 'center' }}>{homeData.name}</h1>
                     <p style={{ fontSize: 20, color: '#1e40af', marginBottom: 16, fontWeight: 600, letterSpacing: '-0.3px' }}>{homeData.subtitle}</p>
@@ -508,14 +709,14 @@ export default function Portfolio() {
                         <div style={s.card}>
                             <div style={s.cardHeader}>
                                 <h2 style={s.h2}>About Me</h2>
-                                {isAdmin && <EditBtn onClick={() => setModal({ type: 'about', title: 'Edit About', data: { ...about } })} />}
+                                {isAdmin && <EditBtn onClick={() => setModal({ type: 'about', title: 'Edit About', data: { ...about } })} label="about" />}
                             </div>
                             <p style={{ color: '#475569', lineHeight: 1.8, margin: 0 }}>{about.bio}</p>
                         </div>
                         <div style={s.card}>
                             <div style={s.cardHeader}>
                                 <h2 style={s.h2}>Education</h2>
-                                {isAdmin && <EditBtn onClick={() => setModal({ type: 'education', title: 'Edit Education', data: { ...education } })} />}
+                                {isAdmin && <EditBtn onClick={() => setModal({ type: 'education', title: 'Edit Education', data: { ...education } })} label="education" />}
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
                                 <div>
@@ -524,19 +725,19 @@ export default function Portfolio() {
                                     <p style={{ color: '#64748b', fontSize: 13, marginTop: 2, marginBottom: 0 }}>{education.major}</p>
                                     <p style={{ color: '#94a3b8', fontSize: 13, marginTop: 8, marginBottom: 0 }}>Relevant: {education.relevant}</p>
                                 </div>
-                                <span style={s.badge}>{education.period}</span>
+                                <span style={{ ...s.badge, alignSelf: 'flex-start' }}>{education.period}</span>
                             </div>
                         </div>
                         <div style={s.card}>
                             <div style={s.cardHeader}>
                                 <h2 style={s.h2}>Contact</h2>
-                                {isAdmin && <EditBtn onClick={() => setModal({ type: 'about', title: 'Edit Contact', data: { ...about } })} />}
+                                {isAdmin && <EditBtn onClick={() => setModal({ type: 'about', title: 'Edit Contact', data: { ...about } })} label="contact details" />}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                                {about.email && <a href={`mailto:${about.email}`} style={s.contactLink}>✉  {about.email}</a>}
-                                {about.phone && <a href={`tel:${about.phone}`} style={s.contactLink}>📱  {about.phone}</a>}
-                                {about.linkedin && <a href={`https://${about.linkedin}`} target="_blank" rel="noopener noreferrer" style={s.contactLink}>💼  {about.linkedin}</a>}
-                                {about.github && <a href={`https://github.com/${about.github}`} target="_blank" rel="noopener noreferrer" style={s.contactLink}>🐙  github.com/{about.github}</a>}
+                                {about.email && <a href={`mailto:${about.email}`} style={s.contactLink}><span aria-hidden="true">✉ </span> {about.email}</a>}
+                                {about.phone && <a href={`tel:${about.phone}`} style={s.contactLink}><span aria-hidden="true">📱 </span> {about.phone}</a>}
+                                {about.linkedin && <a href={`https://${about.linkedin}`} target="_blank" rel="noopener noreferrer" style={s.contactLink}><span aria-hidden="true">💼 </span> {about.linkedin}</a>}
+                                {about.github && <a href={`https://github.com/${about.github}`} target="_blank" rel="noopener noreferrer" style={s.contactLink}><span aria-hidden="true">🐙 </span> github.com/{about.github}</a>}
                             </div>
                         </div>
                     </div>
@@ -545,71 +746,43 @@ export default function Portfolio() {
                 {/* EXPERIENCE */}
                 {tab === "experience" && (
                     <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24, marginBottom: 32 }}>
-                            <h2 style={{ ...s.h2, margin: 0 }}>Work Experience</h2>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 24, marginBottom: 28, gap: 12, flexWrap: 'wrap' }}>
+                            <div>
+                                <h2 style={{ ...s.h2, margin: 0 }}>Work Experience</h2>
+                                <p style={{ color: '#94a3b8', fontSize: 13, margin: '6px 0 0' }}>Big Four audit and tax-technology internships</p>
+                            </div>
                             {isAdmin && <AddBtn onClick={() => setModal({ type: 'experience', title: 'Add Experience', data: { company: '', role: '', period: '', points: '', color: '#1e40af' }, index: -1 })} label="Add Job" />}
                         </div>
-                        {(() => {
-                            const getYear = (period) => {
-                                const match = period?.match(/\d{4}/)
-                                return match ? parseInt(match[0]) : 2024
-                            }
-                            const sorted = [...experience].sort((a, b) => getYear(b.period) - getYear(a.period))
-                            const maxYear = Math.max(...sorted.map(j => getYear(j.period))) + 1
-                            const minYear = Math.min(...sorted.map(j => getYear(j.period))) - 1
-                            const years = []
-                            for (let y = maxYear; y >= minYear; y--) years.push(y)
-                            const PX_PER_YEAR = 120
-                            const totalHeight = years.length * PX_PER_YEAR
 
-                            return (
-                                <div style={{ position: 'relative', minHeight: totalHeight + 60 }}>
-                                    <div style={{ position: 'absolute', left: '50%', top: 0, height: totalHeight + 40, width: 2, background: '#e2e8f0', transform: 'translateX(-50%)', zIndex: 0 }} />
-                                    {years.map((year, i) => (
-                                        <div key={year} style={{ position: 'absolute', left: '50%', top: i * PX_PER_YEAR, transform: 'translateX(-50%)', background: '#f8fafc', padding: '2px 10px', borderRadius: 4, zIndex: 2, border: '1px solid #e2e8f0' }}>
-                                            <span style={{ color: '#94a3b8', fontSize: 12, fontWeight: 500 }}>{year}</span>
-                                        </div>
-                                    ))}
-                                    {sorted.map((job, idx) => {
-                                        const year = getYear(job.period)
-                                        const yearIndex = years.indexOf(year)
-                                        const topPos = yearIndex * PX_PER_YEAR + 30
-                                        const isLeft = idx % 2 === 0
-                                        const jobColor = job.color || '#1e40af'
+                        <Timeline
+                            items={experience}
+                            titleKey="company"
+                            isAdmin={isAdmin}
+                            onEdit={(item, index) => setModal({ type: 'experience', title: 'Edit Experience', data: { ...item }, index })}
+                            onDelete={index => deleteItem('experience', index)}
+                            emptyText="No roles added yet."
+                        />
 
-                                        return (
-                                            <div key={idx} style={{ position: 'absolute', top: topPos, left: isLeft ? 0 : '50%', width: 'calc(50% - 24px)', marginLeft: isLeft ? 0 : 24, marginRight: isLeft ? 24 : 0, zIndex: 1 }}>
-                                                <div style={{ background: '#fff', border: `1px solid ${jobColor}30`, borderLeft: `3px solid ${jobColor}`, borderRadius: 10, padding: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
-                                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            <p style={{ color: jobColor, fontWeight: 700, fontSize: 14, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{job.company}</p>
-                                                            <p style={{ color: '#0f172a', fontSize: 13, margin: '2px 0 6px', fontWeight: 500 }}>{job.role}</p>
-                                                            <span style={s.badge}>{job.period}</span>
-                                                        </div>
-                                                        {isAdmin && <div style={{ display: 'flex', gap: 4, marginLeft: 6, flexShrink: 0 }}>
-                                                            <EditBtn onClick={() => setModal({ type: 'experience', title: 'Edit Experience', data: { ...job }, index: experience.indexOf(job) })} />
-                                                            <DeleteBtn onClick={() => deleteItem('experience', experience.indexOf(job))} />
-                                                        </div>}
-                                                    </div>
-                                                    <ul style={{ margin: '8px 0 0', paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                                                        {(job.points || '').split(';').map((p, i) => p.trim() && (
-                                                            <li key={i} style={{ color: '#475569', lineHeight: 1.6, fontSize: 12 }}>{p.trim()}</li>
-                                                        ))}
-                                                    </ul>
-                                                </div>
-                                                <div style={{
-                                                    position: 'absolute', top: 20,
-                                                    [isLeft ? 'right' : 'left']: -30,
-                                                    width: 12, height: 12, borderRadius: '50%',
-                                                    background: jobColor, border: '2px solid #f8fafc', zIndex: 3,
-                                                }} />
-                                            </div>
-                                        )
-                                    })}
-                                    <div style={{ height: totalHeight + 60 }} />
+                        {(volunteer.length > 0 || isAdmin) && (
+                            <div style={{ marginTop: 44, borderTop: '1px solid #e2e8f0', paddingTop: 32 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 28, gap: 12, flexWrap: 'wrap' }}>
+                                    <div>
+                                        <h2 style={{ ...s.h2, margin: 0 }}>Volunteer &amp; Community</h2>
+                                        <p style={{ color: '#94a3b8', fontSize: 13, margin: '6px 0 0' }}>Governance, transparency and community work</p>
+                                    </div>
+                                    {isAdmin && <AddBtn onClick={() => setModal({ type: 'volunteer', title: 'Add Volunteer Role', data: { organisation: '', role: '', period: '', points: '', color: '#10b981' }, index: -1 })} label="Add Role" />}
                                 </div>
-                            )
-                        })()}
+
+                                <Timeline
+                                    items={volunteer}
+                                    titleKey="organisation"
+                                    isAdmin={isAdmin}
+                                    onEdit={(item, index) => setModal({ type: 'volunteer', title: 'Edit Volunteer Role', data: { ...item }, index })}
+                                    onDelete={index => deleteItem('volunteer', index)}
+                                    emptyText="No volunteer roles added yet."
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -627,8 +800,8 @@ export default function Portfolio() {
                                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
                                             <p style={{ color: '#94a3b8', fontSize: 11, textTransform: 'uppercase', letterSpacing: 1.2, margin: 0, fontWeight: 600 }}>{category}</p>
                                             {isAdmin && <>
-                                                <EditBtn onClick={() => setModal({ type: 'skill', title: 'Edit Skills', data: { ...skills[idx] }, index: idx })} />
-                                                <DeleteBtn onClick={() => deleteItem('skill', idx)} />
+                                                <EditBtn onClick={() => setModal({ type: 'skill', title: 'Edit Skills', data: { ...skills[idx] }, index: idx })} label={category} />
+                                                <DeleteBtn onClick={() => deleteItem('skill', idx)} label={category} />
                                             </>}
                                         </div>
                                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
@@ -680,8 +853,8 @@ export default function Portfolio() {
                                             : <span style={{ color: '#0f172a', fontSize: 14, flex: 1 }}>{cert.name}</span>
                                         }
                                         {isAdmin && <div style={{ display: 'flex', gap: 4 }}>
-                                            <EditBtn onClick={() => setModal({ type: 'certification', title: 'Edit Certification', data: { ...cert }, index: idx })} />
-                                            <DeleteBtn onClick={() => deleteItem('certification', idx)} />
+                                            <EditBtn onClick={() => setModal({ type: 'certification', title: 'Edit Certification', data: { ...cert }, index: idx })} label={cert.name} />
+                                            <DeleteBtn onClick={() => deleteItem('certification', idx)} label={cert.name} />
                                         </div>}
                                     </div>
                                 ))}
@@ -730,11 +903,11 @@ export default function Portfolio() {
                                             onClick={() => setSelectedProject({ ...p, _idx: projects.indexOf(p) })}>
                                             {/* Gradient top */}
                                             <div style={{ height: 110, background: CARD_GRADIENTS[idx % CARD_GRADIENTS.length], display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 36, position: 'relative' }}>
-                                                {getProjectIcon(p.tags)}
+                                                <span aria-hidden="true">{getProjectIcon(p.tags)}</span>
                                                 {isAdmin && (
                                                     <div style={{ position: 'absolute', top: 8, right: 8, display: 'flex', gap: 4 }} onClick={e => e.stopPropagation()}>
-                                                        <EditBtn onClick={() => setModal({ type: 'project', title: 'Edit Project', data: { ...p }, index: projects.indexOf(p) })} />
-                                                        <DeleteBtn onClick={() => deleteItem('project', projects.indexOf(p))} />
+                                                        <EditBtn onClick={() => setModal({ type: 'project', title: 'Edit Project', data: { ...p }, index: projects.indexOf(p) })} label={p.title} />
+                                                        <DeleteBtn onClick={() => deleteItem('project', projects.indexOf(p))} label={p.title} />
                                                     </div>
                                                 )}
                                             </div>
@@ -787,11 +960,11 @@ export default function Portfolio() {
                                 <div style={s.overlay} onClick={() => setSelectedProject(null)}>
                                     <div style={{ ...s.modal, maxWidth: 600 }} onClick={e => e.stopPropagation()}>
                                         <div style={{ height: 140, background: CARD_GRADIENTS[selectedProject._idx % CARD_GRADIENTS.length], borderRadius: '12px 12px 0 0', margin: '-28px -28px 24px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48 }}>
-                                            {getProjectIcon(selectedProject.tags)}
+                                            <span aria-hidden="true">{getProjectIcon(selectedProject.tags)}</span>
                                         </div>
                                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
                                             <h3 style={{ margin: 0, color: '#0f172a', fontSize: 20, fontWeight: 700 }}>{selectedProject.title}</h3>
-                                            <button onClick={() => setSelectedProject(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer', flexShrink: 0 }}>×</button>
+                                            <button onClick={() => setSelectedProject(null)} aria-label="Close project details" style={{ background: 'none', border: 'none', color: '#94a3b8', fontSize: 22, cursor: 'pointer', flexShrink: 0 }}>×</button>
                                         </div>
                                         <span style={s.badge}>{selectedProject.period}</span>
                                         <p style={{ color: '#475569', lineHeight: 1.8, fontSize: 14, margin: '16px 0' }}>{selectedProject.description}</p>
@@ -986,7 +1159,7 @@ export default function Portfolio() {
                 {/* RESUME */}
                 {tab === "resume" && (
                     <div style={{ ...s.card, marginTop: 24, textAlign: 'center', padding: 56 }}>
-                        <div style={{ width: 64, height: 64, background: '#eff6ff', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }}>📄</div>
+                        <div style={{ width: 64, height: 64, background: '#eff6ff', borderRadius: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', fontSize: 28 }} aria-hidden="true">📄</div>
                         <h2 style={{ ...s.h2, textAlign: 'center', fontSize: 24 }}>Resume</h2>
                         <p style={{ color: '#64748b', marginBottom: 32, fontSize: 15 }}>Tan Kai Jun Keith — Accountancy & Data Analytics</p>
                         <button
@@ -996,7 +1169,7 @@ export default function Portfolio() {
                         </button>
                         {isAdmin && (
                             <div style={{ marginTop: 24 }}>
-                                <EditBtn onClick={() => setModal({ type: 'resume', title: 'Edit Resume URL', data: { url: resumeUrl } })} />
+                                <EditBtn onClick={() => setModal({ type: 'resume', title: 'Edit Resume URL', data: { url: resumeUrl } })} label="resume URL" />
                                 <p style={{ color: '#94a3b8', fontSize: 12, marginTop: 8 }}>Current URL: {resumeUrl || 'not set'}</p>
                             </div>
                         )}
