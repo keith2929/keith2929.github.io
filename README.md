@@ -1,16 +1,35 @@
-# React + Vite
+# Keith Tan: Portfolio Website
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**Live:** [keithktan.com](https://keithktan.com)
 
-Currently, two official plugins are available:
+My personal site (Accountancy & Data Analytics). It's a React single-page app with a built-in content editor and interactive finance tools.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Sections
 
-## React Compiler
+- **Home, About/Education, Experience, Skills, Resume:** editable in the browser through an admin mode, with content stored in Google Sheets so updates don't need a redeploy
+- **Certifications:** Credly badges fetched through a serverless proxy (to work around CORS)
+- **Projects:** pulled live from my GitHub repositories, with filter pills and detail modals
+- **Lease calculator** (opened from Projects): interactive IFRS 16 / ASC 842 lease amortization with PV/FV factor tables and Excel export
+- **Spending dashboard** (admin only): receipt data captured by [receipt.bot](https://github.com/keith2929/receipt.bot), with a spending map geocoded server-side
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Architecture
 
-## Expanding the ESLint configuration
+```
+React (Vite)  ──>  Netlify Functions  ──>  Google Sheets API (site content)
+                                     ──>  Credly (badges)
+                                     ──>  Nominatim (geocoding)
+                                     ──>  Supabase (spending data)
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+Serverless functions live in `netlify/functions/`. Use `netlify dev` to run them locally with environment variables.
+
+## Tech
+
+React 19 · Vite · Netlify Functions · Google Sheets API · Supabase · Leaflet · ExcelJS
