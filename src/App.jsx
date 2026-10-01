@@ -156,6 +156,23 @@ function parsePeriod(period) {
 // months since year 0, so two dates compare as one number; null sorts last
 const stamp = d => (d ? d.year * 12 + d.month : 0)
 
+// the two sheets describe the same thing with different column names, so flatten
+// them to one shape and a combined timeline can sort across both
+const SOURCES = {
+    experience: { titleKey: 'company', label: 'Work', noun: 'Experience' },
+    volunteer: { titleKey: 'organisation', label: 'Volunteer', noun: 'Volunteer Role' },
+}
+const toEntries = (kind, items) => items.map((item, index) => ({
+    kind, index, item,
+    title: item[SOURCES[kind].titleKey],
+    ...parsePeriod(item.period),
+}))
+
+const BLANK = {
+    experience: { company: '', role: '', period: '', points: '', color: '#1e40af' },
+    volunteer: { organisation: '', role: '', period: '', points: '', color: '#10b981' },
+}
+
 // "May 2025 – Aug 2025" → "4 mos" (inclusive of both end months, same as LinkedIn)
 function durationLabel(start, end) {
     if (!start || !end) return ''
@@ -179,8 +196,8 @@ function useIsNarrow(breakpoint = 760) {
     return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches, () => false)
 }
 
-function TimelineCard({ entry, titleKey, isAdmin, onEdit, onDelete }) {
-    const { item, index, start, end } = entry
+function TimelineCard({ entry, showKind, isAdmin, onEdit, onDelete }) {
+    const { item, title, kind, start, end } = entry
     const color = item.color || '#1e40af'
     const duration = durationLabel(start, end)
     const points = (item.points || '').split(';').map(p => p.trim()).filter(Boolean)
@@ -193,13 +210,18 @@ function TimelineCard({ entry, titleKey, isAdmin, onEdit, onDelete }) {
         >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div style={{ minWidth: 0 }}>
-                    <p style={{ color, fontWeight: 700, fontSize: 14.5, margin: 0, lineHeight: 1.35 }}>{item[titleKey]}</p>
+                    {showKind && (
+                        <p style={{ color: '#94a3b8', fontSize: 10.5, fontWeight: 600, letterSpacing: 1, textTransform: 'uppercase', margin: '0 0 4px' }}>
+                            {SOURCES[kind].label}
+                        </p>
+                    )}
+                    <p style={{ color, fontWeight: 700, fontSize: 14.5, margin: 0, lineHeight: 1.35 }}>{title}</p>
                     <p style={{ color: '#0f172a', fontSize: 13, margin: '3px 0 9px', fontWeight: 500 }}>{item.role}</p>
                 </div>
                 {isAdmin && (
                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-                        <EditBtn onClick={() => onEdit(item, index)} label={item[titleKey]} />
-                        <DeleteBtn onClick={() => onDelete(index)} label={item[titleKey]} />
+                        <EditBtn onClick={() => onEdit(entry)} label={title} />
+                        <DeleteBtn onClick={() => onDelete(entry)} label={title} />
                     </div>
                 )}
             </div>
@@ -220,13 +242,11 @@ function TimelineCard({ entry, titleKey, isAdmin, onEdit, onDelete }) {
 
 // Flow-based timeline: cards size themselves, so a long entry can never overlap
 // the next one. Centred + alternating on desktop, single left rail on mobile.
-function Timeline({ items, titleKey = 'company', isAdmin, onEdit, onDelete, emptyText = 'Nothing here yet.' }) {
+function Timeline({ entries: input, showKind, isAdmin, onEdit, onDelete, emptyText = 'Nothing here yet.' }) {
     const narrow = useIsNarrow()
 
-    const entries = items
-        .map((item, index) => ({ item, index, ...parsePeriod(item.period) }))
-        // newest start first; when two roles ran concurrently the longer one sits on top
-        .sort((a, b) => stamp(b.start) - stamp(a.start) || stamp(b.end) - stamp(a.end))
+    // newest start first; when two roles ran concurrently the longer one sits on top
+    const entries = [...input].sort((a, b) => stamp(b.start) - stamp(a.start) || stamp(b.end) - stamp(a.end))
 
     if (entries.length === 0) return <p style={{ color: '#94a3b8', fontSize: 14 }}>{emptyText}</p>
 
@@ -263,13 +283,13 @@ function Timeline({ items, titleKey = 'company', isAdmin, onEdit, onDelete, empt
                         const isLeft = !narrow && flip++ % 2 === 0
                         const color = entry.item.color || '#1e40af'
                         return (
-                            <div key={entry.index} style={{
+                            <div key={`${entry.kind}-${entry.index}`} style={{
                                 position: 'relative', marginBottom: 22, display: 'flex',
                                 justifyContent: narrow || isLeft ? 'flex-start' : 'flex-end',
                                 paddingLeft: narrow ? RAIL + 22 : 0,
                             }}>
                                 <div style={{ width: narrow ? '100%' : 'calc(50% - 30px)', zIndex: 1 }}>
-                                    <TimelineCard entry={entry} titleKey={titleKey} isAdmin={isAdmin} onEdit={onEdit} onDelete={onDelete} />
+                                    <TimelineCard entry={entry} showKind={showKind} isAdmin={isAdmin} onEdit={onEdit} onDelete={onDelete} />
                                 </div>
                                 <div style={{
                                     position: 'absolute', top: 27, height: 2, background: '#e2e8f0', zIndex: 0,
@@ -442,6 +462,7 @@ export default function Portfolio() {
     const [credlyBadges, setCredlyBadges] = useState([])
     const [credlyLoading, setCredlyLoading] = useState(true)
     const [activeFilter, setActiveFilter] = useState('All')
+    const [timelineFilter, setTimelineFilter] = useState('All')
     const [selectedProject, setSelectedProject] = useState(null)
     const [receipts, setReceipts] = useState([])
     const [receiptsLoading, setReceiptsLoading] = useState(false)
@@ -582,7 +603,7 @@ export default function Portfolio() {
 
     if (showLogin) return <LoginPage onLogin={() => { setIsAdmin(true); setShowLogin(false) }} onClose={() => setShowLogin(false)} />
 
-    const navItems = ["home", "about", "experience", "skills", "projects", "resume", ...(isAdmin ? ["dashboard"] : [])]
+    const navItems = ["home", "about", "timeline", "skills", "projects", "resume", ...(isAdmin ? ["dashboard"] : [])]
 
     return (
         <div style={s.page}>
@@ -699,7 +720,7 @@ export default function Portfolio() {
                         ))}
                     </div>
                     <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
-                        <button onClick={() => setTab("experience")} style={{ ...s.btn, background: '#1e40af', color: '#fff', fontWeight: 600 }}>View Experience</button>
+                        <button onClick={() => setTab("timeline")} style={{ ...s.btn, background: '#1e40af', color: '#fff', fontWeight: 600 }}>View Timeline</button>
                         <button onClick={() => setTab("resume")} style={{ ...s.btn, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>Download Resume</button>
                         {about.linkedin && <a href={`https://${about.linkedin}`} target="_blank" rel="noopener noreferrer" style={{ ...s.btn, background: '#fff', border: '1px solid #e2e8f0', color: '#64748b', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>LinkedIn ↗</a>}
                     </div>
@@ -748,48 +769,60 @@ export default function Portfolio() {
                     </div>
                 )}
 
-                {/* EXPERIENCE */}
-                {tab === "experience" && (
-                    <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 24, marginBottom: 28, gap: 12, flexWrap: 'wrap' }}>
-                            <div>
-                                <h2 style={{ ...s.h2, margin: 0 }}>Work Experience</h2>
-                                <p style={{ color: '#94a3b8', fontSize: 13, margin: '6px 0 0' }}>Big Four audit and tax-technology internships</p>
+                {/* TIMELINE */}
+                {tab === "timeline" && (() => {
+                    const work = toEntries('experience', experience)
+                    const vol = toEntries('volunteer', volunteer)
+                    const VIEWS = {
+                        All: { entries: [...work, ...vol], heading: 'Timeline', blurb: 'Work and volunteer roles, most recent first', adds: ['experience', 'volunteer'], empty: 'Nothing here yet.' },
+                        Work: { entries: work, heading: 'Work Experience', blurb: 'Big Four audit and tax-technology internships', adds: ['experience'], empty: 'No roles added yet.' },
+                        Volunteer: { entries: vol, heading: 'Volunteer & Community', blurb: 'Governance, transparency and community work', adds: ['volunteer'], empty: 'No volunteer roles added yet.' },
+                    }
+                    const view = VIEWS[timelineFilter] || VIEWS.All
+
+                    return (
+                        <div>
+                            <div style={{ marginTop: 24, marginBottom: 20 }}>
+                                <h2 style={{ ...s.h2, margin: 0 }}>{view.heading}</h2>
+                                <p style={{ color: '#94a3b8', fontSize: 13, margin: '6px 0 0' }}>{view.blurb}</p>
                             </div>
-                            {isAdmin && <AddBtn onClick={() => setModal({ type: 'experience', title: 'Add Experience', data: { company: '', role: '', period: '', points: '', color: '#1e40af' }, index: -1 })} label="Add Job" />}
+
+                            {/* Source filter + admin add */}
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 30 }} role="tablist" aria-label="Filter timeline by source">
+                                {Object.keys(VIEWS).map(key => (
+                                    <button key={key} role="tab" aria-selected={timelineFilter === key} onClick={() => setTimelineFilter(key)} style={{
+                                        padding: '8px 20px', borderRadius: 999, border: '1px solid',
+                                        borderColor: timelineFilter === key ? '#1e40af' : '#e2e8f0',
+                                        background: timelineFilter === key ? '#1e40af' : '#fff',
+                                        color: timelineFilter === key ? '#fff' : '#475569',
+                                        cursor: 'pointer', fontSize: 14,
+                                        fontWeight: timelineFilter === key ? 600 : 400,
+                                    }}>
+                                        {key}
+                                        <span style={{ marginLeft: 7, opacity: 0.6, fontWeight: 400 }}>{VIEWS[key].entries.length}</span>
+                                    </button>
+                                ))}
+                                {isAdmin && view.adds.map(kind => (
+                                    <AddBtn
+                                        key={kind}
+                                        onClick={() => setModal({ type: kind, title: `Add ${SOURCES[kind].noun}`, data: { ...BLANK[kind] }, index: -1 })}
+                                        label={kind === 'experience' ? 'Add Job' : 'Add Role'}
+                                    />
+                                ))}
+                            </div>
+
+                            <Timeline
+                                entries={view.entries}
+                                showKind={timelineFilter === 'All'}
+                                isAdmin={isAdmin}
+                                onEdit={entry => setModal({ type: entry.kind, title: `Edit ${SOURCES[entry.kind].noun}`, data: { ...entry.item }, index: entry.index })}
+                                onDelete={entry => deleteItem(entry.kind, entry.index)}
+                                emptyText={view.empty}
+                            />
                         </div>
+                    )
+                })()}
 
-                        <Timeline
-                            items={experience}
-                            titleKey="company"
-                            isAdmin={isAdmin}
-                            onEdit={(item, index) => setModal({ type: 'experience', title: 'Edit Experience', data: { ...item }, index })}
-                            onDelete={index => deleteItem('experience', index)}
-                            emptyText="No roles added yet."
-                        />
-
-                        {(volunteer.length > 0 || isAdmin) && (
-                            <div style={{ marginTop: 44, borderTop: '1px solid #e2e8f0', paddingTop: 32 }}>
-                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 28, gap: 12, flexWrap: 'wrap' }}>
-                                    <div>
-                                        <h2 style={{ ...s.h2, margin: 0 }}>Volunteer &amp; Community</h2>
-                                        <p style={{ color: '#94a3b8', fontSize: 13, margin: '6px 0 0' }}>Governance, transparency and community work</p>
-                                    </div>
-                                    {isAdmin && <AddBtn onClick={() => setModal({ type: 'volunteer', title: 'Add Volunteer Role', data: { organisation: '', role: '', period: '', points: '', color: '#10b981' }, index: -1 })} label="Add Role" />}
-                                </div>
-
-                                <Timeline
-                                    items={volunteer}
-                                    titleKey="organisation"
-                                    isAdmin={isAdmin}
-                                    onEdit={(item, index) => setModal({ type: 'volunteer', title: 'Edit Volunteer Role', data: { ...item }, index })}
-                                    onDelete={index => deleteItem('volunteer', index)}
-                                    emptyText="No volunteer roles added yet."
-                                />
-                            </div>
-                        )}
-                    </div>
-                )}
 
                 {/* SKILLS */}
                 {tab === "skills" && (
