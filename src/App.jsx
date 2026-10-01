@@ -147,10 +147,14 @@ function parseDate(str) {
 
 function parsePeriod(period) {
     const parts = (period || '').split(/\s*[–—-]\s*/)
-    const start = parseDate(parts[0])
-    const end = parseDate(parts[1]) || start
-    return { start, end }
+    const end = parseDate(parts[1])
+    // "Jan – May 2024" writes the year once, on the end half; let the start borrow it
+    const start = parseDate(parts[0]) || (end && parseDate(`${parts[0]} ${end.year}`))
+    return { start, end: end || start }
 }
+
+// months since year 0, so two dates compare as one number; null sorts last
+const stamp = d => (d ? d.year * 12 + d.month : 0)
 
 // "May 2025 – Aug 2025" → "4 mos" (inclusive of both end months, same as LinkedIn)
 function durationLabel(start, end) {
@@ -221,7 +225,8 @@ function Timeline({ items, titleKey = 'company', isAdmin, onEdit, onDelete, empt
 
     const entries = items
         .map((item, index) => ({ item, index, ...parsePeriod(item.period) }))
-        .sort((a, b) => (b.start?.year || 0) - (a.start?.year || 0) || (b.start?.month || 0) - (a.start?.month || 0))
+        // newest start first; when two roles ran concurrently the longer one sits on top
+        .sort((a, b) => stamp(b.start) - stamp(a.start) || stamp(b.end) - stamp(a.end))
 
     if (entries.length === 0) return <p style={{ color: '#94a3b8', fontSize: 14 }}>{emptyText}</p>
 
