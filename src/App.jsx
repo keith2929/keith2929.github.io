@@ -452,6 +452,7 @@ export default function Portfolio() {
     const narrow = useIsNarrow()
     const [tab, setTab] = useState("home")
     const [loading, setLoading] = useState(true)
+    const [loadError, setLoadError] = useState(false)
     const [isAdmin, setIsAdmin] = useState(false)
     const [showLogin, setShowLogin] = useState(false)
     const [saving, setSaving] = useState(false)
@@ -474,24 +475,14 @@ export default function Portfolio() {
     const [certifications, setCertifications] = useState([])
     const [projects, setProjects] = useState([])
     const [volunteer, setVolunteer] = useState([])
-    const [homeData, setHomeData] = useState({
-        available_text: "Open to full-time opportunities · Graduating Jun 2026",
-        name: "Keith Tan",
-        subtitle: "Accountancy & Data Analytics",
-        description: "Recent SMU graduate with Big Four experience at EY and PwC. I turn financial data into decisions using Alteryx, Power BI, and SQL.",
-        badge1: "EY Audit Intern", badge2: "PwC Digital Tax Intern", badge3: "Alteryx Certified",
-    })
-    const [education, setEducation] = useState({
-        school: "Singapore Management University",
-        degree: "Bachelor of Accountancy",
-        major: "Double Major: Accountancy & Accounting Data Analytics",
-        relevant: "Advanced Tax, Financial Accounting, Audit",
-        period: "Sep 2022 – Jun 2026",
-    })
+    // the sheet is the only source of this copy — a hardcoded default here just
+    // becomes a second, silently stale version of the pitch
+    const [homeData, setHomeData] = useState({})
+    const [education, setEducation] = useState({})
     const [resumeUrl, setResumeUrl] = useState('')
 
-    useEffect(() => {
-        Promise.all([
+    const loadContent = useCallback(() => {
+        return Promise.all([
             readSheet('about'), readSheet('experience'), readSheet('skills'),
             readSheet('certifications'), readSheet('projects'),
             readSheet('home'), readSheet('education'), readSheet('resume'),
@@ -507,7 +498,11 @@ export default function Portfolio() {
             if (res[0]?.url) setResumeUrl(res[0].url)
             if (vol?.length) setVolunteer(vol)
             setLoading(false)
-        }).catch(() => setLoading(false))
+        }).catch(() => { setLoadError(true); setLoading(false) })
+    }, [])
+
+    useEffect(() => {
+        loadContent()
 
         const loadRepos = async () => {
             setReposLoading(true)
@@ -531,7 +526,7 @@ export default function Portfolio() {
         fetch(`/.netlify/functions/credly?username=${CREDLY_USERNAME}`)
             .then(r => r.json()).then(d => { setCredlyBadges(d.data || []); setCredlyLoading(false) })
             .catch(() => setCredlyLoading(false))
-    }, [])
+    }, [loadContent])
 
     useEffect(() => {
         if (!selectedProject) return
@@ -594,6 +589,16 @@ export default function Portfolio() {
         if (row.category) acc[row.category] = (row.skills || '').split(',').map(s => s.trim())
         return acc
     }, {})
+
+    if (loadError && !homeData.name) return (
+        <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24, textAlign: 'center' }}>
+            <p style={{ color: '#0f172a', fontSize: 16, margin: 0, fontWeight: 600 }}>This page could not load its content.</p>
+            <p style={{ color: '#64748b', fontSize: 14, margin: 0, maxWidth: 420, lineHeight: 1.6 }}>
+                Something went wrong reaching the portfolio data. It is usually brief — please try again.
+            </p>
+            <button onClick={() => { setLoadError(false); setLoading(true); loadContent() }} style={{ ...s.btn, background: '#1e40af', color: '#fff', fontWeight: 600 }}>Try again</button>
+        </div>
+    )
 
     if (loading) return (
         <div style={{ minHeight: '100vh', background: '#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
